@@ -1,4 +1,4 @@
-# mac2jb Traiver fork
+# mac2jb MistBrew fork
 
 my fork of [cpypwn/mac2jb](https://github.com/cpypwn/mac2jb), an all-in-one
 Switch 2 jailbreaking tool for Mac. Based on upstream v0.6.0; this fork adds
