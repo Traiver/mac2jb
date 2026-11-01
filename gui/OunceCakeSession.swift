@@ -4,9 +4,10 @@ struct OunceCakeGame: Decodable, Equatable, Identifiable {
     let titleId: String
     let name: String
     let storages: [Int]
+    var kind: String? = nil
     var id: String { titleId }
     var storageDescription: String {
-        storages.map { [2: "Game card", 4: "Internal storage", 5: "SD card"][$0] ?? "Unknown storage" }
+        storages.map { [2: "Game card", 3: "System storage", 4: "Internal storage", 5: "SD card"][$0] ?? "Unknown storage" }
             .joined(separator: ", ")
     }
 }
@@ -14,7 +15,7 @@ struct OunceCakeGame: Decodable, Equatable, Identifiable {
 struct OunceCakeEndpoint: Equatable {
     let host: String
     let port: Int
-    var address: String { "ftp://\(host):\(port)" }
+    var address: String { "http://\(host):\(port)/" }
 }
 
 // Only the current verified host can supply a catalog and confirm its endpoint.
@@ -54,12 +55,13 @@ struct OunceCakeSession: Equatable {
                   identifiers.insert(game.titleId.lowercased()).inserted,
                   !game.storages.isEmpty, game.storages.count <= 3,
                   Set(game.storages).count == game.storages.count,
-                  game.storages.allSatisfy({ [2, 4, 5].contains($0) }), game.name.utf8.count <= 160 else { return false }
+                  (game.kind == nil || ["game", "system-program", "system-data", "firmware-nca"].contains(game.kind!)),
+                  game.storages.allSatisfy({ (["system-program", "system-data", "firmware-nca"].contains(game.kind ?? "") ? [3] : [2, 4, 5]).contains($0) }), game.name.utf8.count <= 160 else { return false }
             let name = game.name.replacingOccurrences(of: "[\\x00-\\x1f\\x7f-\\x9f\\u2028-\\u202e\\u2066-\\u2069]",
                                                       with: " ", options: .regularExpression)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             validated.append(OunceCakeGame(titleId: game.titleId.lowercased(), name: name.isEmpty ? "Unknown game" : name,
-                                           storages: game.storages.sorted()))
+                                           storages: game.storages.sorted(), kind: game.kind))
         }
         games = validated
         stage = .choosing
@@ -73,10 +75,10 @@ struct OunceCakeSession: Equatable {
         return true
     }
 
-    @discardableResult mutating func receiveEndpoint(host: String?, port: Int?, ftpURL: String?) -> Bool {
-        guard stage == .preparing, let host, host == consoleAddress, port == 2121 else { return false }
-        let endpoint = OunceCakeEndpoint(host: host, port: 2121)
-        guard ftpURL == nil || ftpURL == endpoint.address else { return false }
+    @discardableResult mutating func receiveEndpoint(host: String?, port: Int?, httpURL: String?) -> Bool {
+        guard stage == .preparing, let host, host == consoleAddress, let port, port == 8080 else { return false }
+        let endpoint = OunceCakeEndpoint(host: host, port: port)
+        guard httpURL == endpoint.address else { return false }
         self.endpoint = endpoint
         stage = .serving
         return true

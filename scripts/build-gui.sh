@@ -1,6 +1,8 @@
 #!/bin/bash
 set -euo pipefail
 umask 077
+# Keep the verified portable runtime free of Python bytecode cache files.
+export PYTHONDONTWRITEBYTECODE=1
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
@@ -12,8 +14,8 @@ APP_OUTPUT="${1:-$ROOT/build/mac2jb.app}"
 APP_OUTPUT="$(python3 -c 'import os,sys; print(os.path.abspath(sys.argv[1]))' "$APP_OUTPUT")"
 BUILD="$ROOT/.build-gui"
 APP_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$ROOT/gui/Info.plist")"
-[[ "$APP_VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || {
-  echo 'The app version must be a stable three-part version.' >&2; exit 1;
+[[ "$APP_VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-fork-traiver)?$ ]] || {
+  echo 'The app version must be a three-part version with an optional -fork-traiver suffix.' >&2; exit 1;
 }
 SOURCE_ARCHIVE="$BUILD/mac2jb-$APP_VERSION-source.zip"
 NODE_BINARY="${NODE_BINARY:-/usr/local/bin/node}"

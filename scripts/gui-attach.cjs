@@ -25,8 +25,8 @@ function launchConfiguration(command) {
   if (!selected) throw Error('Choose a supported homebrew app.');
   const [application, script] = selected;
   if (application === 'ouncecake') {
-    if (!net.isIPv4(command.consoleAddress)) throw Error('Enter the Switch’s IPv4 address for OunceCake FTP.');
-    return {application, script, config: {consoleAddress: command.consoleAddress, port: 2121}};
+    if (!net.isIPv4(command.consoleAddress)) throw Error('Enter the Switch’s IPv4 address for OunceCake HTTP/WebDAV.');
+    return {application, script, config: {consoleAddress: command.consoleAddress, port: 8080}};
   }
   if (application === 'mintbrew') {
     if (command.addonUrls !== undefined && (!Array.isArray(command.addonUrls) || command.addonUrls.length > 32 ||
@@ -65,7 +65,8 @@ function validCatalog(games) {
     games.every(game => game && /^[a-f0-9]{16}$/.test(game.titleId) && typeof game.name === 'string' &&
       Buffer.byteLength(game.name) <= 160 && !/[\x00-\x1f\x7f]/.test(game.name) && Array.isArray(game.storages) &&
       game.storages.length >= 1 && game.storages.length <= 3 && new Set(game.storages).size === game.storages.length &&
-      game.storages.every(value => [2, 4, 5].includes(value))) && new Set(games.map(game => game.titleId)).size === games.length;
+      (game.kind===undefined||['game','system-program','system-data','firmware-nca'].includes(game.kind)) &&
+      game.storages.every(value => (['system-program','system-data','firmware-nca'].includes(game.kind)?[3]:[2,4,5]).includes(value))) && new Set(games.map(game => game.titleId)).size === games.length;
 }
 function signalOwned(child, signal, group = false) {
   if (!child) return;
@@ -271,9 +272,9 @@ async function main(options = {}) {
       if (!['started', 'progress', 'running', 'stopped', 'failed'].includes(event.type)) return;
       if (settled) {protocolFailure('The selected app sent activity after shutdown.'); return;}
       if (ouncecakeMode && event.type === 'running' &&
-          (awaitingGame || gameTitles.size === 0 || event.host !== config.consoleAddress || event.port !== 2121 ||
-           event.ftpURL !== `ftp://${config.consoleAddress}:2121`)) {
-        protocolFailure('OunceCake did not confirm the selected FTP endpoint.'); return;
+          (awaitingGame || gameTitles.size === 0 || event.host !== config.consoleAddress || event.port !== config.port ||
+           event.httpURL !== `http://${config.consoleAddress}:8080/`)) {
+        protocolFailure('OunceCake did not confirm the selected game-server endpoint.'); return;
       }
       if (event.cleanupBlocked === true) fail('The selected app could not confirm native shutdown.', true);
       const wasRunning = running;
@@ -287,7 +288,7 @@ async function main(options = {}) {
       if (retrySafeFailure) return;
       safeEmit('homebrew-' + event.type, {path: context.directory, message: event.message,
         ...(['izlauncher','mintbrew'].includes(application) ? {cleanupBlocked} : {}),
-        ...(ouncecakeMode ? {host: event.host, port: event.port, ftpURL: event.ftpURL, cleanupBlocked} : {})});
+        ...(ouncecakeMode ? {host: event.host, port: event.port, httpURL: event.httpURL, cleanupBlocked} : {})});
     };
     lines(owned.stdout, observe, 1024 * 1024); lines(owned.stderr, observe);
     if (configurable) {
@@ -452,7 +453,7 @@ async function main(options = {}) {
               customHomebrewPath:staged.kind==='launcher'?staged.launcherFolder:
                 staged.kind==='rpc-app'?staged.packageFolder:staged.appFolder,
               customHomebrewKind:staged.kind||'gpu-app',adapter:staged.adapter,
-              ...(staged.adapter==='ouncecake'?{consoleAddress:selection.config.consoleAddress,port:2121}:{})}};
+              ...(staged.adapter==='ouncecake'?{consoleAddress:selection.config.consoleAddress,port:8080}:{})}};
             homebrewTask = homebrew(selected).catch(error => {
               if (finishing && !child) return;
               fail('The selected app could not start: ' + error.message, Boolean(child));

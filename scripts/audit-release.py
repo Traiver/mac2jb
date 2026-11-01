@@ -12,6 +12,8 @@ if len(sys.argv) != 2:
 archive = sys.argv[1]
 required = {
     'mac2jb/README.md',
+    'mac2jb/CHANGELOG.md',
+    'mac2jb/integrations/mintbrew-ouncecake/catalog.cjs',
     'mac2jb/.github/workflows/build.yml',
     'mac2jb/LICENSE',
     'mac2jb/vendor/libusbd/LICENSE',
@@ -107,10 +109,13 @@ required = {
     'mac2jb/vendor/OunceCake/LICENSE',
     'mac2jb/vendor/OunceCake/README.md',
     'mac2jb/vendor/OunceCake/engine/oz-code/native.c',
+    'mac2jb/vendor/OunceCake/engine/exports.cjs',
+    'mac2jb/vendor/OunceCake/engine/preparation.cjs',
+    'mac2jb/vendor/OunceCake/engine/firmware.cjs',
     'mac2jb/vendor/OunceCake/engine/oz-code/native.h',
     'mac2jb/vendor/OunceCake/engine/oz-code/layout.ld',
     'mac2jb/vendor/OunceCake/engine/oz-code/native.bin',
-    'mac2jb/vendor/OunceCake/engine/build-ftp.cjs',
+    'mac2jb/vendor/OunceCake/engine/build-native.cjs',
     'mac2jb/packaging/OunceCake-provenance.json',
     'mac2jb/packaging/OunceCake-SHA256SUMS',
     'mac2jb/packaging/OunceCake-upstream-SHA256SUMS',
@@ -289,16 +294,16 @@ with zipfile.ZipFile(archive) as z:
                     raise ValueError('invalid OunceCake manifest')
                 expected[ounce_prefix + relative] = digest
             actual = {name for name in names if name.startswith(ounce_prefix) and not name.endswith('/')}
-            if len(expected) != 17 or actual != set(expected):
+            if len(expected) != 33 or actual != set(expected):
                 violations.append('incomplete or unexpected OunceCake source distribution')
             for name, digest in expected.items():
                 if name not in names or hashlib.sha256(z.read(name)).hexdigest() != digest:
                     violations.append('missing or changed OunceCake source: ' + name)
             native = ounce_prefix + 'engine/oz-code/native.bin'
-            if hashlib.sha256(z.read(native)).hexdigest() != '9af1776daae66e5566b9fb52e9017b6b78203e4c93d3b63d7000f0196eb5ff1e':
+            if hashlib.sha256(z.read(native)).hexdigest() != '857153593a13bc0cc41b3a7da49fdc828067c12dad1ea3e7ea233a78e8d7b1a6':
                 violations.append('changed pinned OunceCake native image')
             provenance = json.loads(z.read('mac2jb/packaging/OunceCake-provenance.json'))
-            if provenance.get('commit') != 'e3bcbd229be2229d44f036455adddda921ade3b2' or provenance.get('license') != 'GPLv2':
+            if provenance.get('commit') != '6dfd7750752f8b6c18f2c40b34fdadc628cd9a6e' or provenance.get('license') != 'GPLv2':
                 violations.append('changed OunceCake upstream provenance')
             if b'GNU GENERAL PUBLIC LICENSE' not in z.read(ounce_prefix + 'LICENSE'):
                 violations.append('missing OunceCake GPL license text')

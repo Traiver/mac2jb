@@ -5,7 +5,7 @@ import Foundation
         let address = "192.0.2.1"
         precondition(SessionRunMode.allCases == [.bootstrapOnly, .heldRPC, .systemCodeDump, .exploitOnly, .commandsOnly, .hostOnly, .hostOnlyHeld, .existingRPC])
         precondition(SessionRunMode.allCases.map(\.number) == [1, 2, 3, 4, 5, 6, 7, 8])
-        precondition(SessionRunMode.heldRPC.caption.contains("launch MintBrew automatically"))
+        precondition(SessionRunMode.heldRPC.caption.contains("launch MistBrew automatically"))
 
         var bootstrap = WorkflowProgress()
         bootstrap.begin(fullInstall: true)

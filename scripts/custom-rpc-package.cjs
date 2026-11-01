@@ -12,7 +12,7 @@ const manifestName='mac2jb-rpc-app.json';
 const ouncecakeFiles=[
   'engine/protocol.cjs','engine/session.cjs','engine/content.cjs',
   'engine/fs-context.cjs','engine/program.cjs','engine/mounts.cjs',
-  'engine/ftp.cjs','engine/oz-code/native.bin'
+  'engine/server.cjs','engine/native-license.cjs','engine/exports.cjs','engine/firmware.cjs','engine/preparation.cjs','engine/oz-code/native.bin'
 ];
 const check=(value,message)=>{if(!value)throw Error(message);};
 const digest=bytes=>crypto.createHash('sha256').update(bytes).digest('hex');
@@ -76,7 +76,7 @@ async function autoOunceCakeManifest(folder){
       const name=path.posix.join(relative,item.name),file=path.join(folder,name);
       check(fileName(name),'OunceCake fork contains an unsafe file path.');
       if(item.isDirectory())await inventory(name);
-      else if(item.isFile()&&/\.(?:cjs|json|bin)$/.test(item.name)&&name!=='engine/build-ftp.cjs'){
+      else if(item.isFile()&&/\.(?:cjs|json|bin)$/.test(item.name)&&!['engine/build-ftp.cjs','engine/build-native.cjs'].includes(name)){
         check(Object.keys(files).length<512,'OunceCake fork has too many runtime files.');
         const fileInfo=await fs.lstat(file);
         check(fileInfo.size>0&&fileInfo.size<=32*1024*1024&&await fs.realpath(file)===file,
@@ -160,7 +160,7 @@ async function preflight(root,folder){
 async function runOunceCake(run,packageInfo,options={}){
   const {folder,manifest,files,fingerprint}=packageInfo;
   const image=await fs.readFile(path.join(folder,'engine/oz-code/native.bin'));
-  const modules=Object.fromEntries(['session','content','mounts','ftp'].map(name=>
+  const modules=Object.fromEntries(['session','content','mounts','server','exports'].map(name=>
     [name,require(path.join(folder,'engine',name+'.cjs'))]));
   const snapshot={vendor:folder,image,ready:true,application:manifest.name,
     version:manifest.appVersion||'local',commit:null,files,nativeImageSha256:digest(image),

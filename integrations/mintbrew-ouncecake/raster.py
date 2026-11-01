@@ -6,7 +6,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 WIDTH = 768
 HEIGHT = 32
-MAX_GAMES = 1000
+MAX_GAMES = 1001
 
 def font(size):
     path = os.environ.get('MAC2JB_HBLAUNCHER_FONT')

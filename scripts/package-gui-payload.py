@@ -13,7 +13,7 @@ from pathlib import Path
 
 
 SOURCE_FILES = (
-    'README.md', 'LICENSE', '.gitignore', 'Makefile', 'sender.c', 'commands.c',
+    'README.md', 'CHANGELOG.md', 'LICENSE', '.gitignore', 'Makefile', 'sender.c', 'commands.c',
     'keyboard.c', 'indent-test.bas', 'upstream.lock', 'mac2jb.command',
     'setup.sh', 'fetch-bootstrap.sh', 'make-release-zip.command',
 )

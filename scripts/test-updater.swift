@@ -12,13 +12,12 @@ import AppKit
         do { try action() } catch { passed += 1; print("PASS " + name); return }
         throw UpdateFailure("FAIL: " + name)
     }
-    static func release(_ change: (inout [String: Any]) -> Void = { _ in }) throws -> UpdateRelease {
-        let tag = "v1.2.3"
+    static func release(tag: String = "v1.2.3", _ change: (inout [String: Any]) -> Void = { _ in }) throws -> UpdateRelease {
         var row: [String: Any] = ["tag_name": tag, "draft": false, "prerelease": false,
-            "html_url": "https://github.com/cpypwn/mac2jb/releases/tag/\(tag)",
+            "html_url": "https://github.com/Traiver/mac2jb/releases/tag/\(tag)",
             "assets": ["mac2jb-\(tag)-macos-arm64.zip", "mac2jb-\(tag)-sha256sums"].map {
                 ["name": $0, "size": 100, "digest": "sha256:" + String(repeating: "a", count: 64),
-                 "browser_download_url": "https://github.com/cpypwn/mac2jb/releases/download/\(tag)/\($0)"] as [String: Any]
+                 "browser_download_url": "https://github.com/Traiver/mac2jb/releases/download/\(tag)/\($0)"] as [String: Any]
             }]
         change(&row)
         return try JSONDecoder().decode(UpdateRelease.self, from: JSONSerialization.data(withJSONObject: row))
@@ -223,6 +222,13 @@ import AppKit
             try rejects("invalid version \(version)") { _ = try UpdateVersion(version) }
         }
         try expect(try release().validated().version.text == "1.2.3", "stable release metadata accepted")
+        try expect(try release(tag: "v0.6.0-fork-traiver").validated().version.text == "0.6.0-fork-traiver", "fork release metadata accepted")
+        try expect(try UpdateVersion("0.6.0-fork-traiver").text == "0.6.0-fork-traiver", "fork version preserves its suffix")
+        try expect(UpdateVersion("0.6.1-fork-traiver") > UpdateVersion("0.6.0-fork-traiver"), "fork versions compare numerically")
+        try rejects("unknown fork suffix rejected") { _ = try UpdateVersion("0.6.0-fork-other") }
+        try rejects("original repository rejected by fork updater") {
+            _ = try release { $0["html_url"] = "https://github.com/cpypwn/mac2jb/releases/tag/v1.2.3" }.validated()
+        }
         try rejects("prerelease rejected") { _ = try release { $0["prerelease"] = true }.validated() }
         try rejects("draft rejected") { _ = try release { $0["draft"] = true }.validated() }
         try rejects("missing assets rejected") { _ = try release { $0["assets"] = [] }.validated() }

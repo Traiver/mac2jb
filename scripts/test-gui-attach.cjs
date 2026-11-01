@@ -315,8 +315,8 @@ test('attached direct OunceCake fork uses the catalog and selected FTP endpoint'
   session.send({action:'select-ouncecake-game',titleId:game.titleId});
   await until(()=>child.input.includes('select-game'));
   assert.deepEqual(JSON.parse(child.input.split('\n')[1]),{action:'select-game',titleId:game.titleId});
-  child.event({type:'running',host:'192.0.2.9',port:2121,ftpURL:'ftp://192.0.2.9:2121'});
-  assert.equal((await session.wait('homebrew-running')).ftpURL,'ftp://192.0.2.9:2121');
+  child.event({type:'running',host:'192.0.2.9',port:8080,httpURL:'http://192.0.2.9:8080/'});
+  assert.equal((await session.wait('homebrew-running')).httpURL,'http://192.0.2.9:8080/');
   session.send({action:'finish'});assert.equal(await session.done,0);
 });
 test('attached OunceCake fork cannot claim a different FTP endpoint',async t=>{
@@ -327,7 +327,7 @@ test('attached OunceCake fork cannot claim a different FTP endpoint',async t=>{
   await session.wait('homebrew-catalog');
   session.send({action:'select-ouncecake-game',titleId:game.titleId});
   await until(()=>child.input.split('\n').filter(Boolean).length===2);
-  child.event({type:'running',host:'192.0.2.10',port:2121,ftpURL:'ftp://192.0.2.10:2121'});
+  child.event({type:'running',host:'192.0.2.10',port:8080,httpURL:'http://192.0.2.10:8080/'});
   await session.wait('homebrew-stopped');
   assert.equal(session.events.some(row=>row.type==='homebrew-running'),false);
   session.send({action:'finish'});assert.equal(await session.done,1);
@@ -425,7 +425,7 @@ for (const [action, application, name] of [
     assert.deepEqual(JSON.parse(session.children[0].input), {addonUrls: command.addonUrls, libraryItems: command.libraryItems, quality:'540p'});
     session.children[0].event({type: 'account-progress', watchProgress: {id: 'tt1', time: 12}});
     assert.equal((await session.wait('account-progress')).watchProgress.time, 12);
-  } else if (application === 'ouncecake') assert.deepEqual(JSON.parse(session.children[0].input), {consoleAddress: '192.0.2.9', port: 2121});
+  } else if (application === 'ouncecake') assert.deepEqual(JSON.parse(session.children[0].input), {consoleAddress: '192.0.2.9', port: 8080});
   session.send({action: 'finish'}); assert.equal(await session.done, 0);
   assert.deepEqual(session.children[0].signals, [['SIGTERM', false]]);
   assert.ok(session.events.findIndex(row => row.type === 'homebrew-stopped') < session.events.findIndex(row => row.type === 'rpc-detached'));
@@ -533,8 +533,8 @@ test('OunceCake catalog selection and FTP endpoint belong to the attached sessio
   session.send({action: 'select-ouncecake-game', titleId: game.titleId});
   await until(() => child.input.split('\n').filter(Boolean).length === 2);
   assert.deepEqual(JSON.parse(child.input.trim().split('\n')[1]), {action: 'select-game', titleId: game.titleId});
-  child.event({type: 'running', host: '192.0.2.9', port: 2121, ftpURL: 'ftp://192.0.2.9:2121'});
-  assert.equal((await session.wait('homebrew-running')).ftpURL, 'ftp://192.0.2.9:2121');
+  child.event({type: 'running', host: '192.0.2.9', port: 8080, httpURL: 'http://192.0.2.9:8080/'});
+  assert.equal((await session.wait('homebrew-running')).httpURL, 'http://192.0.2.9:8080/');
   session.send({action: 'select-ouncecake-game', titleId: game.titleId}); await session.wait('action-rejected', 2);
   session.send({action: 'finish'}); assert.equal(await session.done, 0);
 });
@@ -548,14 +548,14 @@ test('invalid or duplicate OunceCake catalogs are rejected before selection', as
 });
 test('OunceCake cannot publish FTP readiness before selection or for a different endpoint', async t => {
   const session = fixture(t); await session.attach(); session.send({action: 'launch-ouncecake', consoleAddress: '192.0.2.9'});
-  await session.wait('homebrew-started'); session.children[0].event({type: 'running', host: '192.0.2.9', port: 2121, ftpURL: 'ftp://192.0.2.9:2121'});
+  await session.wait('homebrew-started'); session.children[0].event({type: 'running', host: '192.0.2.9', port: 8080, httpURL: 'http://192.0.2.9:8080/'});
   await session.wait('homebrew-stopped'); assert.equal(session.events.some(row => row.type === 'homebrew-running'), false);
   session.send({action: 'finish'}); assert.equal(await session.done, 1);
 });
-for (const endpoint of [{host: '192.0.2.10', port: 2121, ftpURL: 'ftp://192.0.2.10:2121'},
-  {host: '192.0.2.9', port: 5000, ftpURL: 'ftp://192.0.2.9:5000'},
-  {host: '192.0.2.9', port: 2121, ftpURL: 'ftp://other.example:2121'}])
-test('selected OunceCake game rejects mismatched endpoint ' + endpoint.ftpURL, async t => {
+for (const endpoint of [{host: '192.0.2.10', port: 8080, httpURL: 'http://192.0.2.10:8080/'},
+  {host: '192.0.2.9', port: 5000, httpURL: 'http://192.0.2.9:5000'},
+  {host: '192.0.2.9', port: 8080, httpURL: 'http://other.example:8080/'}])
+test('selected OunceCake game rejects mismatched endpoint ' + endpoint.httpURL, async t => {
   const session = fixture(t); await session.attach(); session.send({action: 'launch-ouncecake', consoleAddress: '192.0.2.9'});
   await session.wait('homebrew-started'); const child = session.children[0]; child.event({type: 'catalog', games: [game]});
   await session.wait('homebrew-catalog'); session.send({action: 'select-ouncecake-game', titleId: game.titleId});

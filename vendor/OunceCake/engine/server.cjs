@@ -1,7 +1,4 @@
-// mac2jb downstream modification notice, 2026-10-26 (cpypwn integration).
-// Qualify fixed native helpers; require positive readiness/stopped/join proof.
-// Uncertain native cleanup retains mapped code, allocations and attachment.
-// Original OunceCake GPLv2 source and license are preserved in this snapshot.
+// Downstream HTTP/WebDAV adapter: upstream ABI with mac2jb owned-resource lifecycle checks.
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const { resultError, cleanup } = require('./protocol.cjs');
@@ -48,7 +45,30 @@ const wanted = {
   sockname: '_ZN2nn6socket11GetSockNameEiPNS0_8SockAddrEPj',
   fcntl: '_ZN2nn6socket5FcntlEiiz',
   get_errno: '_ZN2nn6socket12GetLastErrnoEv',
+  setsockopt: '_ZN2nn6socket10SetSockOptEiiiPKvj',
+  connect: '_ZN2nn6socket7ConnectEiPKNS0_8SockAddrEj',
 };
+
+// Slot order of ServerFunctions in native.h. Entries not in `wanted` are filled from patched code below.
+const FUNCTION_TABLE = [
+  'socket', 'bind', 'listen', 'accept', 'recv', 'send', 'close', 'poll', 'sockname', 'fcntl', 'get_errno',
+  'ipc', 'close_handle', 'thread_create', 'thread_join', 'setsockopt', 'connect',
+];
+
+// StartupPhase in native.h, for readable startup errors.
+const STARTUP_PHASES = { 1: 'configuration check', 2: 'file index check', 3: 'socket()', 4: 'bind()', 5: 'listen()' };
+// nn::socket errno values are BSD's.
+const ERRNO_NAMES = { 13: 'EACCES', 22: 'EINVAL', 23: 'ENFILE', 24: 'EMFILE', 48: 'EADDRINUSE', 49: 'EADDRNOTAVAIL', 50: 'ENETDOWN', 55: 'ENOBUFS' };
+
+/** Explain a failed native startup from the phase and errno the payload recorded. */
+function startupError({ phase, errno }, port) {
+  const step = STARTUP_PHASES[phase] || 'unknown step ' + phase;
+  if (phase === 4 && errno === 48) {
+    return new Error(`Port ${port} is already in use on the console (is another server still running?). Try another --port.`);
+  }
+  const detail = phase >= 3 ? ` (errno ${errno}${ERRNO_NAMES[errno] ? ' ' + ERRNO_NAMES[errno] : ''})` : '';
+  return new Error(`Native server startup failed at ${step}${detail}`);
+}
 
 function integer(value) {
   checkSdk(value <= BigInt(Number.MAX_SAFE_INTEGER), 'imprecise address');
@@ -142,7 +162,10 @@ async function resolveSdkFunctions({ read, query, base }) {
   return result;
 }
 
+// These mirror SERVER_MAX_CLIENTS (native.h) and IPC_BUFFER_BYTES / SCRATCH_BYTES (native.c).
 const MAX_CLIENTS = 12;
+const IPC_BUFFER_BYTES = 8192;
+const SCRATCH_BYTES = 8192;
 
 const align = (n) => Math.ceil(n / 4096) * 4096;
 
@@ -164,7 +187,7 @@ function encodeConfiguration({
   port,
 }) {
   const config = Buffer.alloc(256);
-  config.write('NS2FTP01');
+  config.write('NS2FTP01'); // Historical magic, shared with native.c CFG_MAGIC; not renamed to keep the ABI stable.
   config.writeUInt32LE(1, 8);
   config.writeUInt32LE(port, 24);
   config.writeUInt32LE(MAX_CLIENTS, 28);
@@ -197,11 +220,11 @@ function encodeConfiguration({
   return { config, sources: table };
 }
 
-async function deployFtp({ attachment: a, image, index, sources, port, timing = {} }) {
+async function deployServer({ attachment: a, image, index, sources, port, timing = {} }) {
   if (!Buffer.isBuffer(image) || !image.length || image.length > 0x10000 ||
       !Buffer.isBuffer(index) || !index.length || !Array.isArray(sources) || !sources.length ||
       !Number.isInteger(port) || port < 1024 || port > 65535)
-    throw new Error('Invalid native FTP deployment input');
+    throw new Error('Invalid native HTTP/WebDAV deployment input');
   const startupMs = timing.startupMs ?? 10000, stopMs = timing.stopMs ?? 10000;
   const pause = timing.pause ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
   const now = timing.now ?? Date.now;
@@ -210,11 +233,13 @@ async function deployFtp({ attachment: a, image, index, sources, port, timing = 
   const indexOffset = 0x20000;
   const sourceOffset = align(indexOffset + index.length);
   const dataOffset = align(sourceOffset + sources.length * 16);
-  const dataBytes = 0x400000;
+  // Keep all 12 client slots, with 256 KiB read/cache windows instead of 4 MiB each.
+  const dataBytes = 0x40000;
   const slotsOffset = dataOffset + dataBytes;
-  const slotBytes = align(4096 + dataBytes + 8192);
+  const slotBytes = align(4096 + dataBytes + IPC_BUFFER_BYTES + SCRATCH_BYTES);
 
-  const work = new a.Session('ftp-native-' + Date.now(), align(slotsOffset + MAX_CLIENTS * slotBytes));
+  const allocationBytes=align(slotsOffset + MAX_CLIENTS * slotBytes);
+  const work = new a.Session('server-native-' + Date.now(), allocationBytes);
   work.record = async () => {};
 
   let worker;
@@ -224,17 +249,18 @@ async function deployFtp({ attachment: a, image, index, sources, port, timing = 
   let mappings = [];
   let mappingPending = false;
   let closing;
+  let allocationUncertain=false;
 
   async function roRequest(command, values) {
     const input = Buffer.alloc(32);
     values.forEach((value, i) => input.writeBigUInt64LE(BigInt(value), i * 8));
 
-    const reply = await work.ipc('FTP owned code mapping', ro, command, input, {
+    const reply = await work.ipc('HTTP/WebDAV owned code mapping', ro, command, input, {
       pid: true,
       copies: [0xffff8001],
     });
 
-    if (reply.result) throw resultError('FTP owned code mapping', reply.result);
+    if (reply.result) throw resultError('HTTP/WebDAV owned code mapping', reply.result);
 
     return reply.data;
   }
@@ -244,6 +270,9 @@ async function deployFtp({ attachment: a, image, index, sources, port, timing = 
     return {
       state: data.readUInt32LE(16),
       result: data.readUInt32LE(20),
+      errno: Number(data.readBigUInt64LE(48)),
+      ip: [...data.subarray(56,60)].join('.'),
+      phase: data.readUInt32LE(60),
     };
   }
 
@@ -254,10 +283,11 @@ async function deployFtp({ attachment: a, image, index, sources, port, timing = 
   function close() {
     if (closing) return closing;
     closing = (async () => {
+    if(allocationUncertain)throw blocked(new Error('The allocator returned an invalid nonzero address; no memory was freed. Restart the console.'));
     if (mappingPending)
-      throw blocked(new Error('FTP executable mapping ownership is uncertain; restart the console.'));
+      throw blocked(new Error('HTTP/WebDAV executable mapping ownership is uncertain; restart the console.'));
     if (workerMayRun && !worker)
-      throw blocked(new Error('FTP thread ownership is uncertain; restart the console.'));
+      throw blocked(new Error('HTTP/WebDAV thread ownership is uncertain; restart the console.'));
     if (worker) {
       try {
       await work.write(work.base + 0x400c, Buffer.from([1, 0, 0, 0]));
@@ -269,15 +299,15 @@ async function deployFtp({ attachment: a, image, index, sources, port, timing = 
 
         if (result === 1) { stopped = true; break; }
 
-        if (result !== 0) throw new Error('FTP thread stop status was invalid: ' + result);
+        if (result !== 0) throw new Error('HTTP/WebDAV thread stop status was invalid: ' + result);
         await pause(50);
       }
-      if (!stopped) throw new Error('FTP thread did not confirm stop before its deadline.');
+      if (!stopped) throw new Error('HTTP/WebDAV thread did not confirm stop before its deadline.');
       const joined = await work.rpc.call3(a.live.sdk + threadCode.join.offset, worker, work.base + 0xa008, 0);
-      if (joined !== 0) throw new Error('FTP thread did not join successfully: ' + joined);
+      if (joined !== 0) throw new Error('HTTP/WebDAV thread did not join successfully: ' + joined);
       } catch (error) { throw blocked(error); }
       work.threads.delete(worker);
-      a.s.threads.delete('standalone-ftp');
+      a.s.threads.delete('standalone-server');
       worker = undefined;
       workerMayRun = false;
     }
@@ -288,7 +318,7 @@ async function deployFtp({ attachment: a, image, index, sources, port, timing = 
         await roRequest(0x524f0013, [pid, mapping.source, mapping.destination, 4096]);
       await work.cleanup();
       if (work.base !== 0 || work.handles.size !== 0 || work.threads.size !== 0)
-        throw new Error('FTP owned allocation cleanup was deferred.');
+        throw new Error('HTTP/WebDAV owned allocation cleanup was deferred.');
     } catch (error) { throw blocked(error); }
     mappings = [];
     return {nativeStopped: true, joined: true, mappingsCleared: true};
@@ -297,7 +327,16 @@ async function deployFtp({ attachment: a, image, index, sources, port, timing = 
   }
 
   try {
-    await work.initialize();
+    try{await work.initialize();}
+    catch(error){
+      allocationUncertain=Boolean(work.base)&&(!Number.isSafeInteger(work.base)||work.base<4096||work.base%4096!==0||work.base>=2**39);
+      if(/^(Invalid allocation|Allocation failed)/.test(error.message||'')){
+        error.code='HTTP_SERVER_ALLOCATION_FAILED';
+        error.allocation={bytes:allocationBytes,indexBytes:index.length,sources:sources.length,invalidNonzeroAddress:allocationUncertain};
+        error.message='HTTP server allocation failed ('+(allocationBytes/1048576).toFixed(1)+' MiB requested). Try X/raw or another export.';
+      }
+      throw error;
+    }
     for (const [name, expected] of Object.entries({...sdk, ...threadCode}))
       await work.verifyCode(expected, 'OunceCake ' + name);
 
@@ -307,15 +346,17 @@ async function deployFtp({ attachment: a, image, index, sources, port, timing = 
       base: a.live.sdk,
     });
 
-    const functions = Buffer.alloc(15 * 8);
-    Object.keys(wanted).forEach((name, i) => {
-      functions.writeBigUInt64LE(BigInt(symbols[name]), i * 8);
+    const addresses = {
+      ...symbols,
+      ipc: a.live.sdk + sdk.send.offset,
+      close_handle: a.live.sdk + sdk.close.offset,
+      thread_create: a.live.sdk + threadCode.create.offset,
+      thread_join: a.live.sdk + threadCode.join.offset,
+    };
+    const functions = Buffer.alloc(FUNCTION_TABLE.length * 8);
+    FUNCTION_TABLE.forEach((name, i) => {
+      functions.writeBigUInt64LE(BigInt(addresses[name]), i * 8);
     });
-
-    functions.writeBigUInt64LE(BigInt(a.live.sdk + sdk.send.offset), 11 * 8);
-    functions.writeBigUInt64LE(BigInt(a.live.sdk + sdk.close.offset), 12 * 8);
-    functions.writeBigUInt64LE(BigInt(a.live.sdk + threadCode.create.offset), 13 * 8);
-    functions.writeBigUInt64LE(BigInt(a.live.sdk + threadCode.join.offset), 14 * 8);
 
     const configuration = encodeConfiguration({
       base: work.base,
@@ -339,19 +380,19 @@ async function deployFtp({ attachment: a, image, index, sources, port, timing = 
 
     ro = await a.service('ro:dmnt');
 
-    const reply = await work.ipc('FTP verify application process', ro, 0x524f0010, Buffer.alloc(32), {
+    const reply = await work.ipc('HTTP/WebDAV verify application process', ro, 0x524f0010, Buffer.alloc(32), {
       pid: true,
       copies: [0xffff8001],
     });
-    if (reply.result) throw resultError('FTP verify application process', reply.result);
+    if (reply.result) throw resultError('HTTP/WebDAV verify application process', reply.result);
     if (!Buffer.isBuffer(reply.data) || reply.data.length < 96)
-      throw new Error('FTP application process reply was truncated.');
+      throw new Error('HTTP/WebDAV application process reply was truncated.');
     pid = reply.data.readBigUInt64LE().toString();
 
     const destination = Number(reply.data.readBigUInt64LE(88));
     if (BigInt(pid) <= 0n || !Number.isSafeInteger(destination) || destination < 4096 ||
         destination >= 2 ** 39 || destination % 4096 !== 0)
-      throw new Error('FTP application process identity or executable destination is invalid.');
+      throw new Error('HTTP/WebDAV application process identity or executable destination is invalid.');
 
     for (let offset = 0; offset < codeBytes; offset += 4096) {
       const source = work.base + 0x10000 + offset;
@@ -362,7 +403,7 @@ async function deployFtp({ attachment: a, image, index, sources, port, timing = 
       mappingPending = false;
     }
 
-    a.s.threads.add('standalone-ftp');
+    a.s.threads.add('standalone-server');
 
     workerMayRun = true;
     const started = await work.rpc.call4(
@@ -375,14 +416,14 @@ async function deployFtp({ attachment: a, image, index, sources, port, timing = 
 
     if (started) {
       workerMayRun = false;
-      a.s.threads.delete('standalone-ftp');
-      throw new Error('Could not start FTP thread: ' + started);
+      a.s.threads.delete('standalone-server');
+      throw new Error('Could not start HTTP/WebDAV thread: ' + started);
     }
 
     worker = Number((await work.readOwned(work.base + 0xa000, 8)).readBigUInt64LE());
     if (!Number.isSafeInteger(worker) || worker <= 0 || worker >= 2 ** 39) {
       worker = undefined;
-      throw blocked(new Error('Native FTP did not return a valid owned thread.'));
+      throw blocked(new Error('Native HTTP/WebDAV did not return a valid owned thread.'));
     }
     work.threads.add(worker);
 
@@ -395,13 +436,13 @@ async function deployFtp({ attachment: a, image, index, sources, port, timing = 
       if (current.state === 1 && current.result === 0) break;
 
       if (current.state === 3) {
-        throw new Error('Native FTP startup failed: 0x' + current.result.toString(16));
+        throw startupError(current, port);
       }
 
       await pause(50);
     }
     if (current.state !== 1 || current.result !== 0)
-      throw new Error('Native FTP did not confirm listening before its deadline.');
+      throw new Error('Native HTTP/WebDAV did not confirm listening before its deadline.');
 
     return { close, status };
   } catch (error) {
@@ -409,10 +450,12 @@ async function deployFtp({ attachment: a, image, index, sources, port, timing = 
     catch (cleanupError) {
       const combined = new AggregateError([error, cleanupError], error.message + '\n' + cleanupError.message);
       combined.cleanupBlocked = Boolean(cleanupError.cleanupBlocked);
+      if(error.allocation)combined.allocation=error.allocation;
       throw combined;
     }
+    if(error.code==='HTTP_SERVER_ALLOCATION_FAILED')error.retrySafe=true;
     throw error;
   }
 }
 
-module.exports = { deployFtp, readImage };
+module.exports = { deployServer, readImage };

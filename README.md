@@ -1,6 +1,23 @@
-# mac2jb
+# mac2jb Traiver fork
 
-an all-in-one ns2 jailbreaking tool for Mac.
+my fork of [cpypwn/mac2jb](https://github.com/cpypwn/mac2jb), an all-in-one
+Switch 2 jailbreaking tool for Mac. Based on upstream v0.6.0; this fork adds
+OunceCake system-title, elicense titles & original NCA exports.
+See [CHANGELOG.md](CHANGELOG.md) for details.
+
+## fork highlights
+
+- MistBrew (formerly MintBrew) adds a soft ice-blue appearance on Mac and Switch.
+  mac2jb keeps its short app name and face icon, with a new glass tile. Native
+  Liquid Glass is used on macOS 26 and newer, with compatible material and
+  Reduce Transparency fallbacks. Internal vendor paths remain unchanged.
+
+
+- export extracted system-title files, elicense titles like GameCube NSO or original registered firmware NCAs.
+- download original installed title NCAs without preparing an ELicense; missing
+  or unusable licenses can fall back to the encrypted export after safe cleanup.
+- reopen OunceCake within a healthy held RPC session, with bounded preparation
+  and lower HTTP server memory usage. A broken transport still requires restart.
 
 ## what you need
 
@@ -46,7 +63,7 @@ configuration, keep that setup.
 
 ### 2. install and load the usb driver
 
-1. extract the supplied v0.6.0 zip and open `mac2jb.app`.
+1. extract the supplied v0.6.0-fork-traiver zip and open `mac2jb.app`.
 2. if macOS blocks the app, open system settings → privacy & security and choose open anyway if offered, then reopen the app.
 3. click install & load driver… and approve the administrator prompt.
 4. if prompted, open system settings → privacy & security and allow the driver.
@@ -121,7 +138,7 @@ mac2jb types this command and presses enter twice to accept ok, then waits
    by wi-fi or ethernet, then select the Mac's address for that network in mac2jb.
 3. tick the demo checkbox if you use the demo; leave it off for the full version.
 4. confirm the Switch is ready, then click jailbreak.
-5. keep SmileBASIC focused and wait for 4/4 verification. MintBrew then launches automatically.
+5. keep SmileBASIC focused and wait for 4/4 verification. MistBrew then launches automatically.
 
 if verification fails at 2/4 while the Mac is on wi-fi, retry with the Mac on
 ethernet. if it fails at 3/4, try a different host and save that host's matching
@@ -131,7 +148,7 @@ after rpc is verified, the usb cable can be disconnected if the Switch keeps
 its separate ethernet connection and the Mac stays on the same network over
 wi-fi or ethernet.
 keep SmileBASIC and mac2jb open for the session. switching the Switch from
-ethernet to wi-fi closes the current rpc connection; v0.6.0 does not resume it.
+ethernet to wi-fi closes the current rpc connection.
 
 for the demo, select either kurumuz or BermTheSequel in developer options. the
 current kurumuz version also fixes the issue on consoles that installed the
@@ -141,11 +158,11 @@ the update is marked `(B)` beside item 3 under system settings → support/healt
 
 ## homebrew
 
-the standard gui jailbreak launches MintBrew automatically after held rpc is
+the standard gui jailbreak launches MistBrew automatically after held rpc is
 verified. for host-only with hold rpc or an existing held rpc session, launch
-MintBrew from developer options.
+MistBrew from developer options.
 
-MintBrew combines Stremio, DOOM, Froggy Road, OunceCake, ftpd-sb, a CPU-to-GPU
+MistBrew combines Stremio, DOOM, Froggy Road, OunceCake, ftpd-sb, a CPU-to-GPU
 probe, Hello World and a CHIP-8 test emulator. add or remove compatible gpu apps
 while it is open, then refresh the list on the Switch. hold B or Minus to return
 from a running app and choose another in the same held rpc session.
@@ -156,41 +173,48 @@ ftpd-sb shares SmileBASIC's `/save` and `/tmp` files with read/write access
 and `/rom` with read-only access. press A in ftpd-sb to start its server, then
 connect to the console IP shown on screen using anonymous, passive FTP on port
 5000. ftpd-sb does not expose other games' files; use OunceCake for a selected
-game's read-only FTP share.
+game's read-only HTTP/WebDAV share.
 
-in MintBrew's OunceCake app, press A on a game to prepare its read-only ftp
-share. connect from the Mac to the address shown on the Switch when ftp is
-ready. press B to close that connection and return to the game list; hold B or
-Minus to return to MintBrew. the CPU-to-GPU probe is an experimental display
-check and does not run arbitrary CPU application code. the CHIP-8 test emulator
-runs its original moving-sprite program on the gpu: use the D-pad to move, A to
-recenter, and B or Minus to return. it does not load external ROMs. its 60 Hz
-timers use the verified console CPU clock through the CPU-to-GPU mailbox, with
-a GPU frame fallback. console behavior still needs testing.
+In MistBrew's OunceCake app, games remain in the main list. All `[SystemProgram]`
+and `[SystemData]` entries are grouped under `[Folder] System Files`. Press A to
+open this folder; select `[..] Back` or press B to return to the main list.
+The firmware export remains directly accessible as `[Firmware] All registered
+original NCAs`. Select a title or firmware entry, then press A. Press X
+on a title to serve its original encrypted NCAs directly under `/raw/<title-id>/`,
+without preparing an ELicense or mounting decrypted views. Base content and
+installed updates/DLC are resolved through NCM; raw game-card export is not
+supported. A missing or unusable ELicense on the A path falls back to raw only
+after partial-view handles are closed and no native worker remains active.
+Content with no RightsId does not require ELicense enumeration. L/R pages
+through the list. Hold Up/Down to repeat after a short initial delay; release
+to stop. The ice-blue scrollbar at the right shows the current visible position.
+It is hidden when all entries fit on one page. Connect to the displayed HTTP/WebDAV address on port 8080
+with a browser or WinSCP (WebDAV, no TLS or credentials).
 
-the MintNES and MintFTP prototypes remain in the source tree for further work.
-neither is included in the v0.6.0 MintBrew app list.
-IZlauncher and its Mac module adaptations also remain in source for further work;
-they are not available in the v0.6.0 app.
+System titles expose their available extracted `exefs` and `romfs` sections
+under `/system-programs/<title-id>/` or `/system-data/<title-id>/`. A section
+absent from the selected NCA is omitted. The firmware entry exposes registered
+BuiltInSystem NCA files, including registered metadata NCAs, under
+`/firmware/nca/`; WinSCP can download the entire directory. These original NCAs
+remain encrypted. This is a system-content export, not a complete NAND or boot
+partition backup, and does not export keys or user saves. It does not certify
+that the downloaded set is installable by another program. The exporter reads
+console files; it does not modify or install system titles.
 
-Stremio runs from MintBrew and requires Stremio installed on the Mac. leave the
-manual add-on field empty to use account add-ons.
-
-Stremio sends larger video and menu frames through a dedicated tcp receiver in
-the existing held session. small frames that fit one rpc write keep the existing
-path. audio and session control still use rpc. keep the Mac and Switch on the
-same network; the receiver stops if a complete frame cannot be confirmed.
-use the d-pad to move through the playback controls and audio/subtitle options;
-move the left stick left or right to seek while the playback controls are open.
-while browsing, L/R switches the top tabs. resume reuses the last selected source
-for that video when it is still available; a new movie or episode opens source
-selection. use the Switch's volume controls for playback volume.
-
-for extra launcher apps, click open apps folder below MintBrew and copy the
-complete compatible app folder into its app folder during the held rpc session.
-add or remove app folders while the launcher is open, then refresh its app list
-on the Switch.
-keep your originals elsewhere; each new session has a fresh app library.
+Press B after downloads finish to stop the server and return to the list;
+hold B or Minus to return to MistBrew. Server stop, thread join and owned-handle
+cleanup must complete before another export starts. Preparation has a cooperative
+120-second deadline and progress messages every 10 seconds. After the deadline,
+the current console operation is awaited before cancelling and closing handles.
+This is not a hard kill of a native IPC operation. A transport failure or
+unproven native cleanup still retains resources and requires a console restart.
+Each OunceCake opening uses a private temporary catalog directory, which is
+removed after rasterization, so returning to MistBrew and reopening is supported.
+The HTTP server keeps twelve client slots with 256 KiB read/cache buffers; its
+fixed buffer allocation is about 49 MiB smaller than the previous 4 MiB windows.
+Allocation failures report requested memory and index size. A retry is offered
+only after server cleanup was verified; an invalid nonzero address is retained
+for restart rather than passed to the native free function.
 
 ## finish or retry
 
@@ -230,14 +254,26 @@ saving the bootstrap does not preserve a live jailbreak connection.
 
 ## build from source
 
-on an apple silicon Mac, install xcode command line tools, cmake and the official
+On an Apple Silicon Mac, use Xcode 26 or newer (or Command Line Tools with
+the macOS 26 SDK or newer), CMake and the official
 node v24.22.1 macOS arm64 or universal executable, then run:
 
 ```sh
+export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+uname -m                         # must report arm64
+python3 -c 'import platform; print(platform.machine())'  # arm64
+cmake --version
+python3 scripts/prepare-homebrew-runtime.py
 bash scripts/check.sh
 make gui
 build/mac2jb.app/Contents/MacOS/mac2jb --self-test
 ```
+
+use native ARM tools on Apple Silicon. Intel Homebrew tools under `/usr/local`
+can invoke Rosetta even from an ARM terminal; prefer ARM Homebrew in
+`/opt/homebrew` for Python and CMake. If `xcrun` reports an incompatible
+architecture, verify those tools before rebuilding. The bundled Node executable
+is checked and thinned to ARM64 during packaging.
 
 this uses the existing build workflow and produces `build/mac2jb.app`, including
 its offline runtime and source archive. if node is elsewhere, set `NODE_BINARY`
@@ -248,20 +284,22 @@ commands. the full macOS fixture and node check list is in
 
 ## help and source
 
-use the console and session logs to investigate failures.
-for support, join the [StonedCold Discord server](https://discord.gg/Sy6QUkR5t).
+use the console and session logs to investigate failures. for support, join the [StonedCold Discord server](https://discord.gg/Sy6QUkR5t).
 
 ## credits
+
+- [cpypwn](https://github.com/cpypwn) — [mac2jb](https://github.com/cpypwn/mac2jb), the original macOS application and build workflow.
+- [Cellenseres](https://github.com/Cellenseres) — [OunceCake](https://github.com/Cellenseres/OunceCake), native installed ELicense contexts and the HTTP/WebDAV implementation used by this fork.
 
 - [pepsipu](https://gitlab.com/pepsipu) — [ns2jb](https://gitlab.com/pepsipu/ns2jb), the original Switch 2 exploit and filesystem research.
 - [kurumuz](https://gitlab.com/kurumuz) — [ns2jb](https://gitlab.com/kurumuz/ns2jb), the default host with compatibility updates, microSD Express update support and demo support.
 - [BermTheSequel](https://gitlab.com/BermTheSequel) — [ns2jb2](https://gitlab.com/BermTheSequel/ns2jb2), demo support.
 - [shinyquagsire](https://github.com/shinyquagsire23) — [libusbd](https://github.com/shinyquagsire23/libusbd) and [macos_usb_gadget_poc](https://github.com/shinyquagsire23/macos_usb_gadget_poc), usb device emulation and macOS gadget-driver work.
 - [misshexa66](https://github.com/misshexa66) — [OunceCake](https://github.com/misshexa66/OunceCake), game-content export.
-- [ravensclawx](https://github.com/ravensclawx) — [HBLauncher](https://github.com/ravensclawx/HBLauncher), the SmileBASIC gpu app launcher and sdk, and [ftpd-sb](https://github.com/ravensclawx/ftpd-sb), bundled with MintBrew and the base for the MintFTP prototype.
+- [ravensclawx](https://github.com/ravensclawx) — [HBLauncher](https://github.com/ravensclawx/HBLauncher), the SmileBASIC gpu app launcher and sdk, and [ftpd-sb](https://github.com/ravensclawx/ftpd-sb), bundled with MistBrew and the base for the MintFTP prototype.
 - [niftynova](https://github.com/NiftyNova) — [gpubrewlauncher](https://github.com/NiftyNova/GPUBrewLauncher), the updated gpu app launcher.
-- [byizmysh](https://github.com/byizmysh) — [IZ2S Platform](https://github.com/byizmysh/IZ2S-Platform), [BlitBun](https://github.com/byizmysh/BlitBun), [VacooTube](https://github.com/byizmysh/VacooTube) and [IZDOOM](https://github.com/byizmysh/IZDOOM). mac2jb includes DOOM in MintBrew and retains the IZlauncher and Mac module adaptations in source.
-- [Stremio](https://github.com/Stremio/stremio-web) — the official app icon used in MintBrew.
+- [byizmysh](https://github.com/byizmysh) — [IZ2S Platform](https://github.com/byizmysh/IZ2S-Platform), [BlitBun](https://github.com/byizmysh/BlitBun), [VacooTube](https://github.com/byizmysh/VacooTube) and [IZDOOM](https://github.com/byizmysh/IZDOOM). mac2jb includes DOOM in MistBrew and retains the IZlauncher and Mac module adaptations in source.
+- [Stremio](https://github.com/Stremio/stremio-web) — the official app icon used in MistBrew.
 - [id Software](https://github.com/id-Software) — the original [Doom engine source](https://github.com/id-Software/DOOM) used by doomgeneric.
 - [ozkl](https://github.com/ozkl) — [doomgeneric](https://github.com/ozkl/doomgeneric), the Doom-compatible engine in the BlitBun Mac adaptation source.
 - [Freedoom contributors](https://freedoom.github.io/) — [Freedoom: Phase 1](https://github.com/freedoom/freedoom), free game data retained with the BlitBun Mac adaptation source.

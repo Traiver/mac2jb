@@ -339,7 +339,8 @@ async function main({root, address, emit, lines, verifiedResult, input = process
                 typeof game.name !== 'string' || Buffer.byteLength(game.name) > 160 ||
                 /[\x00-\x1f\x7f]/.test(game.name) || !Array.isArray(game.storages) ||
                 game.storages.length < 1 || game.storages.length > 3 || new Set(game.storages).size !== game.storages.length ||
-                game.storages.some(value => ![2,4,5].includes(value))) ||
+                (game.kind!==undefined&&!['game','system-program','system-data','firmware-nca'].includes(game.kind)) ||
+                game.storages.some(value => !(['system-program','system-data','firmware-nca'].includes(game.kind)?[3]:[2,4,5]).includes(value))) ||
               new Set(event.games.map(game => game.titleId)).size !== event.games.length) {
             fail('OunceCake returned an invalid game list.'); stopHomebrew(); return;
           }
@@ -348,9 +349,9 @@ async function main({root, address, emit, lines, verifiedResult, input = process
         }
         if (!['started','progress','running','stopped','failed'].includes(event.type)) return;
         if (ouncecakeMode && event.type === 'running' &&
-            (awaitingGame || gameTitles.size === 0 || event.host !== config.consoleAddress || event.port !== 2121 ||
-             event.ftpURL !== `ftp://${config.consoleAddress}:2121`)) {
-          fail('OunceCake did not confirm the selected FTP endpoint.'); stopHomebrew(); return;
+            (awaitingGame || gameTitles.size === 0 || event.host !== config.consoleAddress || event.port !== config.port ||
+             event.httpURL !== `http://${config.consoleAddress}:8080/`)) {
+          fail('OunceCake did not confirm the selected game-server endpoint.'); stopHomebrew(); return;
         }
         if (nativeCleanupApps.has(application) && event.cleanupBlocked === true) {
           cleanupBlocked = true; fail('The selected app could not confirm native shutdown. Restart the console before stopping this session.');
@@ -365,7 +366,7 @@ async function main({root, address, emit, lines, verifiedResult, input = process
         if (retrySafeFailure) return;
         safeEmit('homebrew-' + event.type, {path: event.path || directory, message: event.message,
           ...(['izlauncher','mintbrew'].includes(application) ? {cleanupBlocked} : {}),
-          ...(ouncecakeMode ? {host:event.host,port:event.port,ftpURL:event.ftpURL,cleanupBlocked} : {})});
+          ...(ouncecakeMode ? {host:event.host,port:event.port,httpURL:event.httpURL,cleanupBlocked} : {})});
       };
       lines(child.stdout, observe, 1024 * 1024); lines(child.stderr, observe);
       const outcome = await done;
@@ -463,7 +464,7 @@ async function main({root, address, emit, lines, verifiedResult, input = process
           safeEmit('action-rejected', {message:'Choose a valid local custom homebrew folder.'}); return;
         }
         if (command.action === 'launch-ouncecake' && !net.isIPv4(command.consoleAddress)) {
-          safeEmit('action-rejected', {message:'Enter the Switch’s IPv4 address for OunceCake FTP.'}); return;
+          safeEmit('action-rejected', {message:'Enter the Switch’s IPv4 address for OunceCake HTTP/WebDAV.'}); return;
         }
         if (command.action === 'launch-mintbrew' && (command.addonUrls !== undefined &&
             (!Array.isArray(command.addonUrls) || command.addonUrls.length > 32 ||
@@ -500,7 +501,7 @@ async function main({root, address, emit, lines, verifiedResult, input = process
                 customHomebrewPath:staged.kind==='launcher'?staged.launcherFolder:
                   staged.kind==='rpc-app'?staged.packageFolder:staged.appFolder,
                 customHomebrewKind:staged.kind||'gpu-app',adapter:staged.adapter,
-                ...(staged.adapter==='ouncecake'?{consoleAddress:command.consoleAddress,port:2121}:{})}).catch(error => {
+                ...(staged.adapter==='ouncecake'?{consoleAddress:command.consoleAddress,port:8080}:{})}).catch(error => {
                 fail(error.message);safeEmit('homebrew-failed', {path:directory,
                   message:error.message+' Finish RPC and restart the console. This launch was not retried.',cleanupBlocked});
               }).finally(async () => {await staged.cleanup();});
@@ -543,7 +544,7 @@ async function main({root, address, emit, lines, verifiedResult, input = process
         }
         homebrewAttempted = true;
         const application = command.action.slice('launch-'.length);
-        homebrewTask = homebrew(application, application === 'ouncecake' ? {consoleAddress:command.consoleAddress,port:2121} :
+        homebrewTask = homebrew(application, application === 'ouncecake' ? {consoleAddress:command.consoleAddress,port:8080} :
           {addonUrls: command.addonUrls || [], libraryItems: command.libraryItems || [],
             ...(application === 'mintbrew' ? {quality:command.quality ?? '720p'} : {}),
             ...(command.action === 'launch-izlauncher' && Array.isArray(command.moduleIds) ? {moduleIds:command.moduleIds} : {}),

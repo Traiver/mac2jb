@@ -164,7 +164,7 @@ enum EmbeddedPayloadMetadata { static let sha256 = "unused-fixture" }
         check(!unsupported.model.hasLiveWorkers && unsupported.invocations.isEmpty && unsupported.model.runMode == .exploitOnly,
               "unsupported held workflows never spawn a worker")
 
-        for (launcher, action, edition, host) in [("MintBrew", "launch-mintbrew", SmileBASICEdition.full, HostProfile.kurumuz), ("IZlauncher", "launch-izlauncher", .full, .bermTheSequel), ("IZlauncher", "launch-izlauncher", .demo, .bermTheSequel)] {
+        for (launcher, action, edition, host) in [("MistBrew", "launch-mintbrew", SmileBASICEdition.full, HostProfile.kurumuz), ("IZlauncher", "launch-izlauncher", .full, .bermTheSequel), ("IZlauncher", "launch-izlauncher", .demo, .bermTheSequel)] {
         var addressReads = 0
         let fixture = try AttachmentFixture(host: host, edition: edition, addressProvider: {addressReads += 1; return []})
         defer {fixture.dispose()}

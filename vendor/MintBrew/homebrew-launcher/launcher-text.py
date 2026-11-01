@@ -12,8 +12,8 @@ atlas = Image.new('L', (1024, 2048))
 draw = ImageDraw.Draw(atlas)
 font = os.environ.get('MAC2JB_HBLAUNCHER_FONT') or str(Path(__file__).resolve().parents[3] / 'homebrew/fonts/DejaVuSans.ttf')
 labels = [
-    ('TITLE', 'MintBrew', 82),
-    ('SUBTITLE', 'by cpypwn', 25),
+    ('TITLE', 'MistBrew', 82),
+    ('SUBTITLE', 'Traiver fork · based on MintBrew by cpypwn', 25),
     ('NOTITLES', 'No titles found', 34),
     ('EMPTYHINT', 'Your library is empty.', 20),
     ('SELECT', 'Select', 19),

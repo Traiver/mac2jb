@@ -23,7 +23,7 @@ function locate(input) {
 }
 function inspect(root, prepared) {
   const manifest = JSON.parse(fs.readFileSync(path.join(root, 'manifest.json'), 'utf8'));
-  check(manifest.name === 'MintBrew' && typeof manifest.version === 'string' &&
+  check(manifest.name === 'MistBrew' && typeof manifest.version === 'string' &&
     /^\d+\.\d+\.\d+$/.test(manifest.version), 'Invalid MintBrew manifest.');
   const expected = prepared ? runtimeApps : baseApps;
   const apps = path.join(root, 'apps');
@@ -72,7 +72,7 @@ function inspect(root, prepared) {
     metadata.layoutSha256 === sha('launcher-text.glsl'),
   'MintBrew type atlas does not match the mac2jb app version.');
   const text = fs.readFileSync(path.join(root, 'homebrew-launcher/launcher-text.py'), 'utf8');
-  check(text.includes("('TITLE', 'MintBrew'") && text.includes('MAC2JB_HBLAUNCHER_FONT'),
+  check(text.includes("('TITLE', 'MistBrew'") && text.includes('MAC2JB_HBLAUNCHER_FONT'),
     'MintBrew label or portable font setting is missing.');
   const loop = fs.readFileSync(path.join(root, 'homebrew-launcher/launcher-loop.cjs'), 'utf8');
   check(loop.includes('MintBrew game event source ready.') &&

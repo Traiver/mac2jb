@@ -1,25 +1,60 @@
 {
-  "repository": "https://github.com/misshexa66/OunceCake",
-  "commit": "e3bcbd229be2229d44f036455adddda921ade3b2",
+  "repository": "https://github.com/Cellenseres/OunceCake",
+  "commit": "6dfd7750752f8b6c18f2c40b34fdadc628cd9a6e",
   "version": "1.0.0",
   "license": "GPLv2",
   "upstreamManifest": "OunceCake-upstream-SHA256SUMS",
   "distributionManifest": "OunceCake-SHA256SUMS",
   "nativeImage": {
     "path": "engine/oz-code/native.bin",
-    "bytes": 10813,
-    "sha256": "9af1776daae66e5566b9fb52e9017b6b78203e4c93d3b63d7000f0196eb5ff1e"
+    "bytes": 16180,
+    "sha256": "857153593a13bc0cc41b3a7da49fdc828067c12dad1ea3e7ea233a78e8d7b1a6"
   },
   "modifications": [
     {
-      "date": "2026-10-26",
-      "file": "engine/ftp.cjs",
-      "description": "Qualify fixed native helpers and process replies; require listening, stopped/join proof and complete allocation cleanup; retain uncertain native resources."
+      "date": "2026-11-01",
+      "file": "engine/server.cjs",
+      "description": "Retain upstream 17-entry HTTP/WebDAV ABI and 12 client slots; qualify fixed SDK helpers; require confirmed listening, native stop, successful join and complete mapping/allocation cleanup. Retain resources on uncertain ownership."
     },
     {
-      "date": "2026-10-26",
+      "date": "2026-11-01",
       "file": "engine/fs-context.cjs",
-      "description": "Bound program-index traversal to the owned serialization buffer and reject repeated or invalid node addresses."
+      "description": "Reapply mac2jb serialization-buffer traversal bounds and invalid-address/cycle rejection to the new upstream snapshot."
+    },
+    {
+      "date": "2026-11-01",
+      "file": "engine/exports.cjs",
+      "description": "Add typed BuiltInSystem catalog, read-only system ExeFS/RomFS views and registered original firmware NCA WebDAV export; bound and validate directory listings."
+    },
+    {
+      "date": "2026-11-01",
+      "file": "engine/firmware.cjs",
+      "description": "Export the existing read-only Program RomFS and SystemData DataId storage helpers for the WebDAV integration."
+    },
+    {
+      "date": "2026-11-01",
+      "file": "engine/mounts.cjs",
+      "description": "Allow a validated backing source path distinct from the public filename, so firmware NCAs can be downloaded in one flat directory."
+    },
+    {
+      "date": "2026-11-01",
+      "file": "engine/native-license.cjs, engine/program.cjs, engine/mounts.cjs",
+      "description": "Type missing/unusable ELicense errors, check RightsId before ES enumeration, and propagate cooperative cancellation through license preparation."
+    },
+    {
+      "date": "2026-11-01",
+      "file": "engine/preparation.cjs",
+      "description": "Add a cooperative preparation deadline and progress reporting; always await the native operation before allowing cleanup or retry."
+    },
+    {
+      "date": "2026-11-01",
+      "file": "engine/exports.cjs",
+      "description": "Serve original base/update/DLC NCAs from read-only content filesystems without ELicense preparation or decryption."
+    },
+    {
+      "date": "2026-11-01",
+      "file": "engine/server.cjs",
+      "description": "Use twelve 256 KiB client read/cache windows to reduce fixed allocation by 48.75 MiB; diagnose allocation size and index size, allow retry only after confirmed cleanup, and never free an invalid nonzero pointer."
     }
   ]
 }

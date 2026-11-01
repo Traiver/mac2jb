@@ -12,10 +12,10 @@ struct UpdateVersion: Comparable, Equatable {
     let components: [Int]
     let text: String
     init(_ text: String) throws {
-        guard text.range(of: #"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$"#, options: .regularExpression) != nil else {
+        guard text.range(of: #"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-fork-traiver)?$"#, options: .regularExpression) != nil else {
             throw UpdateFailure("The release has an unsupported version number.")
         }
-        let parts = text.split(separator: ".").compactMap { Int($0) }
+        let parts = text.replacingOccurrences(of: "-fork-traiver", with: "").split(separator: ".").compactMap { Int($0) }
         guard parts.count == 3 else { throw UpdateFailure("The release version is invalid.") }
         self.components = parts; self.text = text
     }
@@ -98,12 +98,12 @@ struct UpdateRelease: Codable {
             let url = asset.browser_download_url
             guard url.scheme == "https", url.host == "github.com", url.user == nil, url.password == nil,
                   url.port == nil, url.query == nil, url.fragment == nil,
-                  url.path == "/cpypwn/mac2jb/releases/download/\(tag_name)/\(asset.name)" else {
+                  url.path == "/Traiver/mac2jb/releases/download/\(tag_name)/\(asset.name)" else {
                 throw UpdateFailure("The update download is outside the mac2jb repository.")
             }
             _ = try Self.digest(asset.digest)
         }
-        guard html_url.absoluteString == "https://github.com/cpypwn/mac2jb/releases/tag/\(tag_name)" else {
+        guard html_url.absoluteString == "https://github.com/Traiver/mac2jb/releases/tag/\(tag_name)" else {
             throw UpdateFailure("The release address is invalid.")
         }
         let policy = try UpdateBuildPolicy.parse(body)
@@ -171,7 +171,7 @@ struct UpdateRequirement {
 }
 
 enum UpdatePackage {
-    static let bundleID = "io.github.cpypwn.mac2jb.demo"
+    static let bundleID = "io.github.traiver.mac2jb"
 
     static func sha256(_ url: URL) throws -> String {
         let handle = try FileHandle(forReadingFrom: url)

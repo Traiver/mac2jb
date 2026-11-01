@@ -111,7 +111,7 @@ struct Mac2jbApp: App {
             CommandGroup(replacing: .newItem) {}
             CommandGroup(after: .appInfo) {
                 Button("Setup Guide…") {
-                    NSWorkspace.shared.open(URL(string: "https://github.com/cpypwn/mac2jb#prerequisites")!)
+                    NSWorkspace.shared.open(URL(string: "https://github.com/Traiver/mac2jb#prerequisites")!)
                 }
                 Button("Check for Updates…") { updater.check() }.disabled(updater.isWorking)
                 Toggle("Check for Updates Automatically", isOn: $updater.checksAutomatically)

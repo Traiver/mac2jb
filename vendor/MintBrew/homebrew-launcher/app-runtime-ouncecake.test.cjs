@@ -21,3 +21,9 @@ test('A selects a game and B closes FTP before another selection',async()=>{
  assert.deepEqual(events,[['select',2],['back'],['select',0]]);
  assert.equal(await dispatchServiceRequest(rpc,0,service,0),false);
 });
+
+test('X dispatches raw selection separately from A and Back',async()=>{
+ const calls=[];const rpc={write:async()=>{}};const service={select:()=>assert.fail('raw must not select decrypted view'),selectRaw:async index=>calls.push(index)};
+ await dispatchServiceRequest(rpc,0,service,0x80000003);assert.deepEqual(calls,[2]);
+ await assert.rejects(dispatchServiceRequest(rpc,0,{select(){}},0x80000001),/cannot export raw/);
+});

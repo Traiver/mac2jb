@@ -29,8 +29,8 @@ test('a built OunceCake folder works without a mac2jb manifest',async t=>{
   try{
     assert.equal(prepared.kind,'rpc-app');
     assert.equal(prepared.adapter,'ouncecake');
-    assert.equal(prepared.app.name,'OunceCake');
-    assert.equal(prepared.app.files,ouncecakeFiles.length);
+    assert.equal(prepared.app.name,'ouncecake-cellenseres');
+    assert.equal(prepared.app.files,ouncecakeFiles.length+1);
     const inspected=await verifyPackage(prepared.packageFolder);
     assert.equal(inspected.manifest.adapter,'ouncecake');
     assert.deepEqual(fs.readFileSync(path.join(prepared.packageFolder,'engine/oz-code/native.bin')),
@@ -41,7 +41,7 @@ test('a built OunceCake folder works without a mac2jb manifest',async t=>{
     assert.equal(outcome.snapshot.commit,null);
     assert.equal(outcome.snapshot.nativeImageSha256,
       hash(fs.readFileSync(path.join(source,'engine/oz-code/native.bin'))));
-    assert.equal(typeof outcome.modules.ftp.deployFtp,'function');
+    assert.equal(typeof outcome.modules.server.deployServer,'function');
   }finally{await prepared.cleanup();}
 });
 test('a compatible fork can change code and add a local engine module',async t=>{

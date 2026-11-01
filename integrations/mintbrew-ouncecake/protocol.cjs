@@ -1,5 +1,6 @@
 const MAGIC=0x31435a4f;
-const MAX_GAMES=1000;
+// One extra navigation row for Back when all 1000 titles are system entries.
+const MAX_GAMES=1001;
 const HEADER_BYTES=4096;
 const TILE_WIDTH=768;
 const TILE_HEIGHT=32;
@@ -7,12 +8,15 @@ const TILE_BYTES=TILE_WIDTH*TILE_HEIGHT/2;
 const STORAGE_BYTES=16*1024*1024;
 const STATES=Object.freeze({reading:0,catalog:1,preparing:2,running:3,error:4,closing:5});
 
-function header(state,count=0,message=''){
+function header(state,count=0,message='',generation=0,parent=false,focus=0){
+ if(!Number.isInteger(generation)||generation<0||generation>0xffffffff||typeof parent!=='boolean'||
+  !Number.isInteger(focus)||focus<0||focus>MAX_GAMES)throw Error('Invalid OunceCake catalog navigation');
  if(!Object.values(STATES).includes(state)||!Number.isInteger(count)||count<0||count>MAX_GAMES)
   throw Error('Invalid OunceCake display state');
  const ascii=Buffer.from(String(message).replace(/[^\x20-\x7e]/g,'?').slice(0,76),'ascii');
  const data=Buffer.alloc(HEADER_BYTES);
  data.writeUInt32LE(MAGIC,0);data.writeUInt32LE(state,4);data.writeUInt32LE(count,8);
+ data.writeUInt32LE(generation,12);data.writeUInt32LE(parent?1:0,20);data.writeUInt32LE(focus,24);
  data.writeUInt32LE(ascii.length,16);ascii.copy(data,128);
  return data;
 }

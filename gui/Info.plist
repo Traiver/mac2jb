@@ -4,13 +4,13 @@
 <dict>
     <key>CFBundleDevelopmentRegion</key><string>en</string>
     <key>CFBundleExecutable</key><string>mac2jb</string>
-    <key>CFBundleIdentifier</key><string>io.github.cpypwn.mac2jb.demo</string>
+    <key>CFBundleIdentifier</key><string>io.github.traiver.mac2jb</string>
     <key>CFBundleName</key><string>mac2jb</string>
     <key>CFBundleDisplayName</key><string>mac2jb</string>
     <key>CFBundleIconFile</key><string>mac2jb</string>
     <key>CFBundlePackageType</key><string>APPL</string>
-    <key>CFBundleShortVersionString</key><string>0.6.0</string>
-    <key>CFBundleVersion</key><string>520</string>
+    <key>CFBundleShortVersionString</key><string>0.6.0-fork-traiver</string>
+    <key>CFBundleVersion</key><string>521</string>
     <key>MAC2JBTestBuild</key><false/>
     <key>LSMinimumSystemVersion</key><string>14.0</string>
     <key>NSHighResolutionCapable</key><true/>

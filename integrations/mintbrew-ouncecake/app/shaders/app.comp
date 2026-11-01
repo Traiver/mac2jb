@@ -3,26 +3,28 @@
 layout(local_size_x=1) in;
 #include "abi.glsl"
 #include "hb.glsl"
+#include "navigation.glsl"
 layout(set=0,binding=1,std430) readonly buffer OunceCakeData {uint words[];} payload;
 void main(){
  uint pressed=hbPressed(),buttons=hbButtons();
  c.motion.x+=1.0/60.0;c.state.z++;
  c.transition.x=max(0.0,c.transition.x-1.0/15.0);
- uint count=min(payload.words[2],1000u),status=payload.words[1];
+ uint count=min(payload.words[2],1001u),status=payload.words[1];
+ if(payload.words[3]!=c.bagMeta.x){
+  ounceResetSelection(count,payload.words[6],c.game.x,c.game.y,c.motion.w,c.piece.x);
+  c.game.z=0u;c.bagMeta.x=payload.words[3];
+ }
  if(status==1u&&count>0u&&c.game.z==0u){
-  int direction=0;
-  if((pressed&HB_UP)!=0u)direction=-1;
-  if((pressed&HB_DOWN)!=0u)direction=1;
-  float stick=hbStick(false).y;
-  c.motion.w=max(0.0,c.motion.w-1.0/60.0);
-  if(abs(stick)>.55&&c.motion.w<=0.0){direction=stick>0.0?-1:1;c.motion.w=.18;}
+  int direction=ounceNavigation(pressed,buttons,hbStick(false).y,c.motion.w,c.piece.x);
   if(direction!=0){
    c.game.x=uint(clamp(int(c.game.x)+direction,0,int(count)-1));
    if(c.game.x<c.game.y)c.game.y=c.game.x;
    if(c.game.x>=c.game.y+8u)c.game.y=c.game.x-7u;
   }
+  if((pressed&HB_X)!=0u&&c.reserved.y==0u){c.reserved.y=0x80000000u|(c.game.x+1u);c.game.z=1u;}
   if((pressed&HB_A)!=0u&&c.reserved.y==0u){c.reserved.y=c.game.x+1u;c.game.z=1u;}
- }else if(status!=1u)c.motion.w=0.0;
+ }else {c.motion.w=0.0;c.piece.x=0;}
+ if(status==1u&&payload.words[5]!=0u&&(pressed&HB_B)!=0u&&c.reserved.y==0u)c.reserved.y=0xffffffffu;
  if(status==3u){
   if((buttons&HB_B)!=0u)c.game.w=min(c.game.w+1u,120u);
   else if((c.state.y&HB_B)!=0u){

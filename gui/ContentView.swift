@@ -2,8 +2,11 @@ import SwiftUI
 import AppKit
 import Combine
 
+// Select the property wrapper even when the SDK also exports a State macro.
+private typealias ViewState<Value> = SwiftUI.State<Value>
+
 private let ink = Mac2jbTheme.ink
-private let teal = Mac2jbTheme.mint
+private let accent = Mac2jbTheme.mist
 
 private struct ToolsContentHeightKey: PreferenceKey {
     static let defaultValue: CGFloat = 0
@@ -17,23 +20,23 @@ struct ContentView: View {
     @ObservedObject var updater: AppUpdater
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @StateObject private var account = StremioAccount()
-    @State private var readyConfirmed = false
-    @State private var setupReady = false
-    @State private var developerReady = false
-    @State private var hostOnlyKeepRPC = false
-    @State private var commandsToSend: Set<PostBootstrapCommand> = [.load, .run, .remove]
-    @State private var savedConfirmed = false
-    @State private var saveDirectModeReady = false
-    @State private var showFirstTimeSetup = false
-    @State private var showDeveloperOptions = false
-    @State private var toolsContentHeight: CGFloat = 0
-    @State private var followConsole = true
-    @State private var activityTab = 0
-    @State private var driverMessage: String?
-    @State private var confirmUpdate = false
-    @State private var showFailure = false
-    @State private var failureText = ""
-    @State private var showUpdateFailure = false
+    @ViewState private var readyConfirmed = false
+    @ViewState private var setupReady = false
+    @ViewState private var developerReady = false
+    @ViewState private var hostOnlyKeepRPC = false
+    @ViewState private var commandsToSend: Set<PostBootstrapCommand> = [.load, .run, .remove]
+    @ViewState private var savedConfirmed = false
+    @ViewState private var saveDirectModeReady = false
+    @ViewState private var showFirstTimeSetup = false
+    @ViewState private var showDeveloperOptions = false
+    @ViewState private var toolsContentHeight: CGFloat = 0
+    @ViewState private var followConsole = true
+    @ViewState private var activityTab = 0
+    @ViewState private var driverMessage: String?
+    @ViewState private var confirmUpdate = false
+    @ViewState private var showFailure = false
+    @ViewState private var failureText = ""
+    @ViewState private var showUpdateFailure = false
 
     private var canConfigure: Bool { [.ready, .failed, .cancelled].contains(model.phase) }
     private var configurationLocked: Bool { model.hasLiveWorkers || model.driverSetupRunning || !canConfigure }
@@ -100,7 +103,7 @@ struct ContentView: View {
             }.ignoresSafeArea(.container, edges: .top)
         }
         .frame(minWidth: 760, minHeight: 560)
-        .preferredColorScheme(.dark).tint(teal)
+        .preferredColorScheme(.dark).tint(accent)
         .onAppear {
             model.accountProgressHandler = { [weak account] update in account?.handleProgress(update) }
             model.mintBrewAccountProvider = { [weak account] in
@@ -191,7 +194,7 @@ struct ContentView: View {
                         }.buttonStyle(PrimaryActionStyle(large: true))
                             .disabled(startBlocked || !readyConfirmed || model.selectedAddress.isEmpty)
                         Button("First time setting up mac2jb?") { showFirstTimeSetup = true }
-                            .buttonStyle(.plain).font(.system(size: 12, weight: .medium)).foregroundStyle(teal)
+                            .buttonStyle(.plain).font(.system(size: 12, weight: .medium)).foregroundStyle(accent)
                             .disabled(configurationLocked || updater.blocksNewSession)
                     }
                 }
@@ -214,7 +217,7 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(alignment: .top, spacing: 10) {
                 Image(systemName: model.driverLoaded ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
-                    .foregroundStyle(model.driverLoaded ? teal : .orange).padding(.top, 2)
+                    .foregroundStyle(model.driverLoaded ? accent : .orange).padding(.top, 2)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(model.driverLoaded ? "USB driver loaded" : "USB driver setup needed")
                         .font(.system(size: 12, weight: .semibold))
@@ -242,7 +245,7 @@ struct ContentView: View {
 
     private var networkPicker: some View {
         HStack(alignment: .center, spacing: 12) {
-            Image(systemName: model.addresses.isEmpty ? "network.slash" : "network").foregroundStyle(teal).frame(width: 16)
+            Image(systemName: model.addresses.isEmpty ? "network.slash" : "network").foregroundStyle(accent).frame(width: 16)
             VStack(alignment: .leading, spacing: 5) {
                 Text("Mac connection").font(.system(size: 12, weight: .semibold))
                 if model.addresses.isEmpty {
@@ -533,7 +536,7 @@ struct ContentView: View {
             } else {
                 ScrollView { contents }.frame(width: 720, height: 650)
             }
-        }.background { Mac2jbBackdrop() }.preferredColorScheme(.dark).tint(teal)
+        }.background { Mac2jbBackdrop() }.preferredColorScheme(.dark).tint(accent)
     }
 
     private var activeSession: some View {
@@ -541,16 +544,16 @@ struct ContentView: View {
             VStack(alignment: .leading, spacing: 22) {
                 HStack(alignment: .top, spacing: 16) {
                     Image(systemName: model.phase == .verified || model.postRun.heldConfirmed ? "checkmark.circle.fill" : model.activeRunMode.isHostOnly ? "network" : "cable.connector")
-                        .font(.system(size: 29)).foregroundStyle(teal).frame(width: 52, height: 52)
-                        .background(teal.opacity(0.08), in: RoundedRectangle(cornerRadius: 16))
+                        .font(.system(size: 29)).foregroundStyle(accent).frame(width: 52, height: 52)
+                        .background(accent.opacity(0.08), in: RoundedRectangle(cornerRadius: 16))
                     VStack(alignment: .leading, spacing: 8) {
                         Text(headline).font(.system(size: 28, weight: .bold, design: .rounded)).foregroundStyle(ink)
                         Text(model.detail).font(.system(size: 13)).foregroundStyle(Mac2jbTheme.muted).fixedSize(horizontal: false, vertical: true)
                     }
                 }
                 if model.isBusy {
-                    if let progress = model.progress { ProgressView(value: progress).tint(teal) }
-                    else { ProgressView().progressViewStyle(.linear).tint(teal) }
+                    if let progress = model.progress { ProgressView(value: progress).tint(accent) }
+                    else { ProgressView().progressViewStyle(.linear).tint(accent) }
                     if !model.progressLabel.isEmpty {
                         Text(model.progressLabel).font(.system(size: 11, design: .monospaced)).foregroundStyle(Mac2jbTheme.muted).monospacedDigit()
                     }
@@ -649,7 +652,7 @@ struct ContentView: View {
             Divider()
             if model.postRun.heldConfirmed {
                 Label(model.isAttachedRPCSession ? "Existing RPC connection verified" : "Switch connection verified · 4/4", systemImage: "checkmark.shield.fill")
-                    .font(.system(size: 12, weight: .semibold)).foregroundStyle(teal)
+                    .font(.system(size: 12, weight: .semibold)).foregroundStyle(accent)
             }
             Text(model.postRun.cleanupBlocked
                  ? "Restart your Switch, then use Stop session. Cleanup could not be confirmed."
@@ -676,7 +679,7 @@ struct ContentView: View {
                 Text("Update mac2jb before starting a new session. You can finish the current session first.")
                     .font(.system(size: 11)).foregroundStyle(Mac2jbTheme.muted)
             }
-            if updater.state == .downloading { ProgressView(value: updater.progress).tint(teal) }
+            if updater.state == .downloading { ProgressView(value: updater.progress).tint(accent) }
             HStack {
                 if updater.state == .available {
                     Button("Download update") { updater.download() }.buttonStyle(.borderedProminent)
@@ -694,7 +697,7 @@ struct ContentView: View {
                 }
                 if updater.state == .failed {
                     Button("Try again") { updater.dismiss(); updater.check() }
-                    Link("Open releases ↗", destination: URL(string: "https://github.com/cpypwn/mac2jb/releases/latest")!)
+                    Link("Open releases ↗", destination: URL(string: "https://github.com/Traiver/mac2jb/releases/latest")!)
                     if updater.hasDownloadedApp { Button("Show downloaded app") { updater.revealDownloadedApp() } }
                     if let log = updater.diagnosticURL {
                         Button("Open update log") { updater.revealLog() }
@@ -707,12 +710,12 @@ struct ContentView: View {
                 }
             }.font(.system(size: 11))
         }.padding(14).frame(maxWidth: .infinity, alignment: .leading)
-            .background(teal.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
+            .background(accent.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
     }
 
     private var mintBrewFolderControls: some View {
         HStack(spacing: 14) {
-            Button("Open MintBrew apps folder") { model.openMintBrewAppsFolder() }
+            Button("Open MistBrew apps folder") { model.openMintBrewAppsFolder() }
                 .disabled(model.runtime == nil)
             if model.homebrewFolder != nil {
                 Button("Open homebrew logs") { model.revealHomebrewLogs() }
@@ -736,15 +739,15 @@ struct ContentView: View {
                     ? "One app per console session. Restart the console and start a fresh host session before choosing another."
                     : model.postRun.heldConfirmed ? "Your Switch is connected. Choose one app for this session." : "Waiting for the host to verify the Switch and hold RPC open.")
                 .font(.system(size: 11)).foregroundStyle(Mac2jbTheme.muted).fixedSize(horizontal: false, vertical: true)
-            homebrewRow(icon: "square.grid.3x3.fill", title: "MintBrew",
+            homebrewRow(icon: "square.grid.3x3.fill", title: "MistBrew",
                         description: "Launch the combined homebrew library on your Switch.",
                         actionTitle: model.postRun.homebrewAttempted && model.homebrewApp == .mintBrew
-                            ? homebrewActionTitle : "Launch MintBrew",
+                            ? homebrewActionTitle : "Launch MistBrew",
                         enabled: model.canLaunchHomebrew, action: {
                             model.launchMintBrew(accountAddons: account.addonURLs,
                                                  libraryItems: account.libraryPayload())
                         }) {
-                Button("Open MintBrew apps folder") { model.openMintBrewAppsFolder() }
+                Button("Open MistBrew apps folder") { model.openMintBrewAppsFolder() }
                     .font(.system(size: 11)).disabled(model.runtime == nil)
                     .font(.system(size: 11))
                 Text("Add or remove apps while this session is open. Refresh the list on your Switch.")
@@ -764,7 +767,7 @@ struct ContentView: View {
                                             action: @escaping () -> Void,
                                             @ViewBuilder details: () -> Details) -> some View {
         HStack(alignment: .top, spacing: 12) {
-            Image(systemName: icon).font(.system(size: 22)).foregroundStyle(teal).frame(width: 32)
+            Image(systemName: icon).font(.system(size: 22)).foregroundStyle(accent).frame(width: 32)
             VStack(alignment: .leading, spacing: 5) {
                 Text(title).font(.system(size: 13, weight: .semibold)).foregroundStyle(ink)
                 Text(description).font(.system(size: 11)).foregroundStyle(Mac2jbTheme.muted)
@@ -804,7 +807,7 @@ struct ContentView: View {
     private var stremioSettings: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Stremio").font(.system(size: 15, weight: .semibold))
-            Text("Set video output before launching Stremio through MintBrew.")
+            Text("Set video output before launching Stremio through MistBrew.")
                 .font(.system(size: 11)).foregroundStyle(Mac2jbTheme.muted)
             Picker("Video output", selection: $model.stremioQuality) {
                 ForEach(StremioQuality.allCases) { quality in
@@ -860,7 +863,7 @@ struct ContentView: View {
                     Text("Console & Developer Options").font(.system(size: 12, weight: .semibold)).foregroundStyle(ink)
                     Spacer()
                     Image(systemName: "chevron.down").font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(teal).rotationEffect(.degrees(showDeveloperOptions ? 180 : 0))
+                        .foregroundStyle(accent).rotationEffect(.degrees(showDeveloperOptions ? 180 : 0))
                         .animation(expansionAnimation, value: showDeveloperOptions)
                 }
                 .padding(.vertical, 4).contentShape(Rectangle())
@@ -931,7 +934,7 @@ struct ContentView: View {
                     Button { model.revealSessionFolder() } label: { Image(systemName: "folder") }
                         .help("Open session logs").accessibilityLabel("Open session logs")
                         .disabled(model.runtime == nil && model.diagnosticLogURL == nil)
-                }.buttonStyle(.borderless).foregroundStyle(teal)
+                }.buttonStyle(.borderless).foregroundStyle(accent)
                 ScrollView {
                     Text(selectedConsoleLog.isEmpty ? " " : selectedConsoleLog)
                         .font(.system(size: 10, design: .monospaced)).foregroundStyle(ink.opacity(0.8))
@@ -957,7 +960,7 @@ struct ContentView: View {
 
     private var powerDirectionNotice: some View {
         HStack(alignment: .top, spacing: 10) {
-            Image(systemName: "cable.connector").foregroundStyle(teal).padding(.top, 2)
+            Image(systemName: "cable.connector").foregroundStyle(accent).padding(.top, 2)
             VStack(alignment: .leading, spacing: 5) {
                 Text("The USB cable needs the right power direction.")
                     .font(.system(size: 11, weight: .semibold)).foregroundStyle(ink)
@@ -967,7 +970,7 @@ struct ContentView: View {
             }
         }
         .padding(12).frame(maxWidth: .infinity, alignment: .leading)
-        .background(teal.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
+        .background(accent.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
     }
     private func durationText(_ seconds: Double) -> String {
         guard seconds.isFinite else { return "Estimating…" }

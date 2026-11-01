@@ -198,7 +198,7 @@ protocol StremioAccountVault {
 }
 
 private struct StremioMacKeychain: StremioAccountVault {
-    private let service = "io.github.cpypwn.mac2jb.stremio"
+    private let service = "io.github.traiver.mac2jb.stremio"
     private let account = "mac2jb-stremio-account"
     private var query: [String: Any] {
         [kSecClass as String: kSecClassGenericPassword,

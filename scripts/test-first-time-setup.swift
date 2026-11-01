@@ -733,7 +733,7 @@ enum EmbeddedPayloadMetadata { static let sha256 = "unused-fixture" }
         try await until("automatic MintBrew launch") {
             gpu.model.postRun.homebrewAttempted && gpu.model.phase == .launchingHomebrew
         }
-        check(gpu.model.homebrewTitle == "MintBrew" && !gpu.model.canLaunchHomebrew &&
+        check(gpu.model.homebrewTitle == "MistBrew" && !gpu.model.canLaunchHomebrew &&
               gpu.model.detail.contains("safely disconnect") && gpu.model.detail.contains("same network") &&
               gpu.model.detail.contains("SmileBASIC and mac2jb open"),
               "the verified GUI jailbreak starts MintBrew with post-RPC USB guidance")
@@ -797,7 +797,7 @@ enum EmbeddedPayloadMetadata { static let sha256 = "unused-fixture" }
                 check(host.model.phase == .rpcHeld && !host.model.postRun.homebrewAttempted,
                       "host-only held RPC keeps app selection manual")
                 if launcher == "iz" { host.model.launchIZlauncher() } else { host.model.launchMintBrew() }
-                check(host.model.homebrewTitle == (launcher == "iz" ? "IZlauncher" : "MintBrew"),
+                check(host.model.homebrewTitle == (launcher == "iz" ? "IZlauncher" : "MistBrew"),
                       "host-only launches the selected independent launcher")
                 try host.put("release-gpu-running")
                 try await until("homebrew on manually connected host") { host.model.phase == .homebrewRunning }
@@ -887,7 +887,7 @@ enum EmbeddedPayloadMetadata { static let sha256 = "unused-fixture" }
         try demo.put("release-rpc-held")
         try await until("demo MintBrew launch") { demo.model.postRun.homebrewAttempted }
         check(demo.model.activeEdition == .demo && demo.model.activeHost == .kurumuz &&
-              demo.model.homebrewTitle == "MintBrew" && demo.model.phase == .launchingHomebrew,
+              demo.model.homebrewTitle == "MistBrew" && demo.model.phase == .launchingHomebrew,
               "the verified kurumuz demo flow automatically launches MintBrew")
         try demo.put("release-gpu-running")
         try await until("demo MintBrew running", diagnostic: { " phase=\(demo.model.phase) status=\(demo.model.status) detail=\(demo.model.detail) log=\(demo.model.log.suffix(500))" }) { demo.model.phase == .homebrewRunning }

@@ -7,13 +7,13 @@ import Foundation
             precondition(condition, label); checks += 1
         }
         let game = OunceCakeGame(titleId: "0100ABCDEF123456", name: "Game\nname", storages: [5, 4])
-        for bad in ["", "192.168.1", "192.168.1.999", "192.168.01.2", "ftp://192.168.1.2", "127.0.0.1:2121", "192.168.1.2\nother"] {
+        for bad in ["", "192.168.1", "192.168.1.999", "192.168.01.2", "http://192.168.1.2", "127.0.0.1:8080/", "192.168.1.2\nother"] {
             check(OunceCakeSession.validConsoleAddress(bad) == nil, "reject invalid console address")
         }
         var session = OunceCakeSession()
         check(session.begin(consoleAddress: " 192.168.1.20 "), "capture explicit address")
         check(!session.begin(consoleAddress: "192.168.1.21") && session.consoleAddress == "192.168.1.20", "address remains captured")
-        check(!session.receiveEndpoint(host: "192.168.1.20", port: 2121, ftpURL: nil), "no endpoint before catalog/selection")
+        check(!session.receiveEndpoint(host: "192.168.1.20", port: 8080, httpURL: nil), "no endpoint before catalog/selection")
         for invalid in [[], [game, game], [OunceCakeGame(titleId: "not-a-title", name: "Game", storages: [4])],
                         [OunceCakeGame(titleId: game.titleId, name: "Game", storages: [9])],
                         [OunceCakeGame(titleId: game.titleId, name: String(repeating: "x", count: 161), storages: [4])]] {
@@ -26,11 +26,24 @@ import Foundation
         check(!session.select(titleId: "0100000000000000"), "forged selection rejected")
         check(session.select(titleId: "0100abcdef123456") && session.stage == .preparing, "one catalog member selected")
         check(!session.select(titleId: "0100abcdef123456"), "selection cannot replay")
-        check(!session.receiveEndpoint(host: "192.168.1.21", port: 2121, ftpURL: nil), "other console endpoint rejected")
-        check(!session.receiveEndpoint(host: "192.168.1.20", port: 21, ftpURL: nil), "unexpected FTP port rejected")
-        check(!session.receiveEndpoint(host: "192.168.1.20", port: 2121, ftpURL: "ftp://user:secret@192.168.1.20:2121"), "credential URL rejected")
-        check(session.receiveEndpoint(host: "192.168.1.20", port: 2121, ftpURL: "ftp://192.168.1.20:2121"), "confirmed endpoint accepted")
-        check(session.endpoint?.address == "ftp://192.168.1.20:2121", "copy address uses console IP")
+        check(!session.receiveEndpoint(host: "192.168.1.21", port: 8080, httpURL: nil), "other console endpoint rejected")
+        check(!session.receiveEndpoint(host: "192.168.1.20", port: 21, httpURL: nil), "unexpected FTP port rejected")
+        check(!session.receiveEndpoint(host: "192.168.1.20", port: 8080, httpURL: "http://user:secret@192.168.1.20:8080/"), "credential URL rejected")
+        check(session.receiveEndpoint(host: "192.168.1.20", port: 8080, httpURL: "http://192.168.1.20:8080/"), "confirmed endpoint accepted")
+        check(session.endpoint?.address == "http://192.168.1.20:8080/", "copy address uses console IP")
+        var webdav = OunceCakeSession()
+        check(webdav.begin(consoleAddress: "192.168.1.20"), "begin WebDAV session")
+        check(webdav.receiveCatalog([game]) && webdav.select(titleId: game.titleId.lowercased()), "select WebDAV game")
+        check(!webdav.receiveEndpoint(host: "192.168.1.20", port: 8080, httpURL: "http://other:8080/"), "reject forged HTTP endpoint")
+        check(webdav.receiveEndpoint(host: "192.168.1.20", port: 8080, httpURL: "http://192.168.1.20:8080/"), "accept confirmed HTTP endpoint")
+        check(webdav.endpoint?.address == "http://192.168.1.20:8080/", "copy HTTP address")
+        var system = OunceCakeSession()
+        check(system.begin(consoleAddress: "192.168.1.20"), "begin system catalog")
+        let systemTitle = OunceCakeGame(titleId: "0100000000000001", name: "SystemProgram", storages: [3], kind: "system-program")
+        check(system.receiveCatalog([systemTitle]), "typed system title accepted")
+        check(system.games[0].storageDescription == "System storage", "system storage label")
+        let decodedSystem = try! JSONDecoder().decode(OunceCakeGame.self, from: Data("{\"titleId\":\"0100000000000001\",\"name\":\"System\",\"storages\":[3],\"kind\":\"system-data\"}".utf8))
+        check(decodedSystem.kind == "system-data", "system kind survives JSON decoding")
         session.stop(cleanupBlocked: true)
         check(session.endpoint == nil && session.stage == .cleanupBlocked, "uncertain cleanup hides endpoint")
         session.stop()

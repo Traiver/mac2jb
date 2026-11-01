@@ -15,7 +15,7 @@ enum HomebrewAppID: Equatable {
 
     var title: String {
         switch self {
-        case .mintBrew: return "MintBrew"
+        case .mintBrew: return "MistBrew"
         case .izlauncher: return "IZlauncher"
         case .custom: return "Custom homebrew"
         }
@@ -61,7 +61,7 @@ private struct GUIEvent: Decodable {
     let modules: [IZlauncherModule]?
     let host: String?
     let port: Int?
-    let ftpURL: String?
+    let httpURL: String?
     let cleanupBlocked: Bool?
     let retrySafe: Bool?
     let startPending: Bool?
@@ -758,7 +758,7 @@ private struct GUIEvent: Decodable {
         guard sendHostControl(control) else { return }
         homebrewApp = .mintBrew
         postRun.launchHomebrew()
-        homebrewMessage = "Starting MintBrew in the current held session…"
+        homebrewMessage = "Starting MistBrew in the current held session…"
         presentPostRunState()
     }
 
@@ -833,10 +833,10 @@ private struct GUIEvent: Decodable {
         guard let runtime else { return }
         let folder = runtime.root.appendingPathComponent("vendor/MintBrew/apps", isDirectory: true)
         guard FileManager.default.fileExists(atPath: folder.path) else {
-            detail = "The MintBrew app folder is unavailable in this session."
+            detail = "The MistBrew app folder is unavailable in this session."
             return
         }
-        if !NSWorkspace.shared.open(folder) { detail = "Could not open the MintBrew app folder in Finder." }
+        if !NSWorkspace.shared.open(folder) { detail = "Could not open the MistBrew app folder in Finder." }
     }
 
     func refreshExploitLogs() {
@@ -868,7 +868,7 @@ private struct GUIEvent: Decodable {
         } catch { return "Could not read log: \(error.localizedDescription)" }
     }
 
-    func startOunceCakeFTP() {
+    func startOunceCakeServer() {
         guard canSelectOunceCakeGame else { return }
         var session = ounceCakeSession
         guard session.select(titleId: selectedOunceCakeGame),
@@ -950,7 +950,7 @@ private struct GUIEvent: Decodable {
                 progress = nil; progressLabel = homebrewMessage
             case .selecting:
                 phase = .launchingHomebrew; status = "Choose a game"
-                detail = "Choose a game below, then start its read-only FTP server. \(sessionReminder)"
+                detail = "Choose a game, system title or firmware export below, then start its read-only HTTP/WebDAV server. \(sessionReminder)"
                 progress = nil; progressLabel = "Game list ready"
             case .running:
                 phase = .homebrewRunning; status = "\(homebrewTitle) is running"
@@ -1320,9 +1320,9 @@ private struct GUIEvent: Decodable {
             if role == "host", event.type == "homebrew-running", ounceCakeSession.hasStarted {
                 guard postRun.stage == .held, postRun.homebrewStage == .launching,
                       ounceCakeSession.stage == .preparing else { return }
-                guard ounceCakeSession.receiveEndpoint(host: event.host, port: event.port, ftpURL: event.ftpURL) else {
+                guard ounceCakeSession.receiveEndpoint(host: event.host, port: event.port, httpURL: event.httpURL) else {
                     postRun.receive("homebrew-failed"); ounceCakeSession.stop(failed: true)
-                    homebrewMessage = "The game server did not confirm a valid FTP address. Finish the session and keep the logs."
+                    homebrewMessage = "The game server did not confirm a valid game-server address. Finish the session and keep the logs."
                     presentPostRunState()
                     return
                 }
@@ -1353,7 +1353,7 @@ private struct GUIEvent: Decodable {
             guard postRun.receive(event.type) else { return }
             ounceCakeSession = session; selectedOunceCakeGame = session.games.first?.titleId ?? ""
             if let folder = sessionURL(event.path) { homebrewFolder = folder }
-            homebrewMessage = "Choose a game to make its files available over FTP."
+            homebrewMessage = "Choose a game, system title or firmware export to make its files available over HTTP/WebDAV."
             presentPostRunState()
         case "homebrew-progress":
             guard role == "host", phase == .launchingHomebrew || phase == .homebrewRunning else { return }

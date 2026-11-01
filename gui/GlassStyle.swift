@@ -1,21 +1,41 @@
 import SwiftUI
 
 enum Mac2jbTheme {
-    static let background = Color(red: 0.025, green: 0.10, blue: 0.085)
-    static let ink = Color(red: 0.90, green: 0.98, blue: 0.94)
-    static let mint = Color(red: 0.58, green: 0.96, blue: 0.77)
-    static let muted = Color(red: 0.62, green: 0.75, blue: 0.69)
+    static let background = Color(red: 0.025, green: 0.045, blue: 0.075)
+    static let ink = Color(red: 0.91, green: 0.96, blue: 1.0)
+    static let mist = Color(red: 0.62, green: 0.80, blue: 0.96)
+    static let muted = Color(red: 0.64, green: 0.73, blue: 0.84)
 }
 
 struct Mac2jbBackdrop: View {
     var body: some View {
         ZStack {
             Mac2jbTheme.background
-            RadialGradient(colors: [Mac2jbTheme.mint.opacity(0.16), .clear],
+            RadialGradient(colors: [Mac2jbTheme.mist.opacity(0.18), .clear],
                            center: .topLeading, startRadius: 0, endRadius: 650)
-            RadialGradient(colors: [Color.teal.opacity(0.11), .clear],
+            RadialGradient(colors: [Mac2jbTheme.mist.opacity(0.11), .clear],
                            center: .bottomTrailing, startRadius: 0, endRadius: 550)
         }.ignoresSafeArea()
+    }
+}
+
+/// Use the system's Liquid Glass on current macOS; keep the macOS 14 fallback.
+struct MistGlassSurface: ViewModifier {
+    var radius: CGFloat = 24
+    var interactive = false
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @ViewBuilder func body(content: Content) -> some View {
+        if reduceTransparency {
+            content.background(Color(red: 0.075, green: 0.11, blue: 0.17),
+                               in: RoundedRectangle(cornerRadius: radius, style: .continuous))
+        } else if #available(macOS 26.0, *) {
+            content.glassEffect(.regular.tint(Mac2jbTheme.mist.opacity(0.10)).interactive(interactive),
+                                in: RoundedRectangle(cornerRadius: radius, style: .continuous))
+        } else {
+            content.background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: radius, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous)
+                    .stroke(Mac2jbTheme.mist.opacity(0.16), lineWidth: 1))
+        }
     }
 }
 
@@ -23,10 +43,8 @@ struct GlassPanel: ViewModifier {
     var padding: CGFloat = 24
     func body(content: Content) -> some View {
         content.padding(padding).frame(maxWidth: .infinity, alignment: .leading)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .stroke(.white.opacity(0.10), lineWidth: 1))
-            .shadow(color: .black.opacity(0.12), radius: 18, y: 8)
+            .modifier(MistGlassSurface())
+            .shadow(color: .black.opacity(0.14), radius: 22, y: 10)
     }
 }
 
@@ -61,8 +79,9 @@ struct PrimaryActionStyle: ButtonStyle {
             .frame(minWidth: large ? 240 : 140, minHeight: large ? 54 : 40)
             .frame(maxWidth: large ? .infinity : nil)
             .padding(.horizontal, large ? 26 : 16)
-            .background(enabled ? Mac2jbTheme.mint.opacity(configuration.isPressed ? 0.76 : 1) : .white.opacity(0.07),
+            .background(enabled ? Mac2jbTheme.mist.opacity(configuration.isPressed ? 0.76 : 1) : .white.opacity(0.07),
                         in: RoundedRectangle(cornerRadius: large ? 17 : 12, style: .continuous))
+            .modifier(MistGlassSurface(radius: large ? 17 : 12, interactive: enabled))
             .scaleEffect(configuration.isPressed && enabled ? 0.985 : 1)
     }
 }

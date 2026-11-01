@@ -36,7 +36,7 @@ const souljaOwners = [
 function applicationConfig(application='gpubrewlauncher',kind='gpu-app') {
   if(application==='mintbrew'){
     const manifest=require('../vendor/MintBrew/manifest.json');
-    if(manifest.name!=='MintBrew'||typeof manifest.version!=='string'||
+    if(manifest.name!=='MistBrew'||typeof manifest.version!=='string'||
       !/^\d+\.\d+\.\d+$/.test(manifest.version))throw Error('Invalid MintBrew manifest.');
     return {id:application,vendor:'MintBrew',name:manifest.name,
       version:manifest.version,source:{format:'mintbrew-v1'},

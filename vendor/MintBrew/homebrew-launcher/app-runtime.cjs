@@ -11,6 +11,9 @@ async function dispatchServiceRequest(rpc,mapped,service,request){
  if(request===0xffffffff){
   check(typeof service.back==='function','App cannot close an active connection');
   await service.back();
+ }else if((request>>>31)!==0){
+  check(typeof service.selectRaw==='function','App cannot export raw NCAs');
+  await service.selectRaw((request&0x7fffffff)-1);
  }else await service.select(request-1);
  return true;
 }

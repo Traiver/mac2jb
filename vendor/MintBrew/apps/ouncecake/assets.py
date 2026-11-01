@@ -14,16 +14,17 @@ atlas = Image.new('L', (1024, 1024))
 draw = ImageDraw.Draw(atlas)
 labels = [
     ('TITLE', 'OunceCake', 70),
-    ('SUBTITLE', 'Read-only game files over FTP', 30),
-    ('DISCOVER', 'Reading installed games...', 31),
-    ('CHOOSE', 'Choose a game', 31),
-    ('PREPARING', 'Preparing game files...', 31),
-    ('CLOSING', 'Closing FTP connection...', 31),
-    ('READY', 'FTP ready', 31),
+    ('SUBTITLE', 'Games, system titles and firmware', 30),
+    ('DISCOVER', 'Reading games and system titles...', 31),
+    ('CHOOSE', 'Choose an export', 31),
+    ('SYSTEM', 'System Files', 31),
+    ('PREPARING', 'Preparing export...', 31),
+    ('CLOSING', 'Closing server connection...', 31),
+    ('READY', 'HTTP / WebDAV ready', 31),
     ('ERROR', 'OunceCake could not start', 31),
-    ('RETURN', 'Hold B or Minus to return to MintBrew', 25),
-    ('SELECT', 'A  Select game', 25),
-    ('BACK', 'Press B to return to game list', 25),
+    ('RETURN', 'Hold B or Minus to return to MistBrew', 25),
+    ('SELECT', 'A Open   X Raw NCA   L/R Page', 25),
+    ('BACK', 'Press B to return to export list', 25),
 ]
 header = []
 y = 4
@@ -51,13 +52,13 @@ header += [f'const uint ASCII_ATLAS_Y = {glyph_y}u;',
 (root / 'data.bin').write_bytes(atlas.tobytes())
 (root / 'shaders/text.glsl').write_text('\n'.join(header) + '\n')
 
-icon = Image.new('RGBA', (256, 256), (8, 32, 28, 255))
+icon = Image.new('RGBA', (256, 256), (8, 18, 32, 255))
 brush = ImageDraw.Draw(icon)
 brush.rounded_rectangle((20, 20, 236, 236), radius=48,
-                        fill=(19, 65, 53, 255), outline=(148, 245, 195, 255), width=7)
-brush.ellipse((72, 62, 184, 174), outline=(148, 245, 195, 255), width=12)
+                        fill=(22, 43, 68, 255), outline=(158, 204, 245, 255), width=7)
+brush.ellipse((72, 62, 184, 174), outline=(158, 204, 245, 255), width=12)
 brush.rounded_rectangle((117, 121, 199, 203), radius=13,
-                        fill=(86, 193, 145, 255), outline=(219, 255, 232, 255), width=4)
-brush.line((148, 150, 176, 150), fill=(10, 46, 34, 255), width=8)
-brush.line((162, 136, 162, 164), fill=(10, 46, 34, 255), width=8)
+                        fill=(113, 168, 218, 255), outline=(225, 242, 255, 255), width=4)
+brush.line((148, 150, 176, 150), fill=(10, 29, 49, 255), width=8)
+brush.line((162, 136, 162, 164), fill=(10, 29, 49, 255), width=8)
 icon.save(root / 'icon.png')

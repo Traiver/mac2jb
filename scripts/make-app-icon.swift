@@ -31,16 +31,36 @@ struct MakeAppIcon {
                 context.scaleBy(x: 1, y: -1)
                 context.setAllowsAntialiasing(true)
                 context.setShouldAntialias(true)
-                let ink = NSColor(srgbRed: 0.08, green: 0.15, blue: 0.18, alpha: 1)
-                context.setFillColor(ink.cgColor)
-                // The transparent 100px inset follows the macOS app-icon canvas.
-                context.addPath(CGPath(roundedRect: CGRect(x: 100, y: 100, width: 824, height: 824),
-                                       cornerWidth: 184, cornerHeight: 184, transform: nil))
-                context.fillPath()
-                let mint = NSColor.systemMint.usingColorSpace(.sRGB)!
-                context.setFillColor(mint.cgColor)
+                func color(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat, _ a: CGFloat = 1) -> CGColor {
+                    NSColor(srgbRed: r, green: g, blue: b, alpha: a).cgColor
+                }
+                let tile = CGPath(roundedRect: CGRect(x: 100, y: 100, width: 824, height: 824),
+                                  cornerWidth: 184, cornerHeight: 184, transform: nil)
+                context.setShadow(offset: CGSize(width: 0, height: 18), blur: 32,
+                                  color: color(0.03, 0.09, 0.18, 0.32))
+                context.addPath(tile); context.setFillColor(color(0.42, 0.64, 0.85)); context.fillPath()
+                context.setShadow(offset: .zero, blur: 0, color: nil)
+                context.saveGState(); context.addPath(tile); context.clip()
+                let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),
+                    colors: [color(0.82, 0.91, 0.99), color(0.52, 0.72, 0.91), color(0.32, 0.52, 0.76)] as CFArray,
+                    locations: [0, 0.48, 1])!
+                context.drawLinearGradient(gradient, start: CGPoint(x: 200, y: 100),
+                                           end: CGPoint(x: 830, y: 960), options: [])
+                let reflection = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),
+                    colors: [color(1, 1, 1, 0.62), color(1, 1, 1, 0)] as CFArray,
+                    locations: [0, 1])!
+                context.drawRadialGradient(reflection, startCenter: CGPoint(x: 285, y: 120), startRadius: 0,
+                                           endCenter: CGPoint(x: 285, y: 120), endRadius: 650, options: [])
+                context.restoreGState()
+                context.addPath(tile); context.setStrokeColor(color(0.94, 0.98, 1, 0.8)); context.setLineWidth(4); context.strokePath()
+                let inset = CGPath(roundedRect: CGRect(x: 109, y: 109, width: 806, height: 806),
+                                   cornerWidth: 175, cornerHeight: 175, transform: nil)
+                context.addPath(inset); context.setStrokeColor(color(0.21, 0.40, 0.64, 0.25)); context.setLineWidth(2); context.strokePath()
+                context.setShadow(offset: CGSize(width: 0, height: 3), blur: 6, color: color(1, 1, 1, 0.48))
+                context.setFillColor(color(0.08, 0.18, 0.31))
                 context.addPath(KeyboardMark().path(in: CGRect(x: 208, y: 232, width: 608, height: 486.4)).cgPath)
                 context.fillPath()
+                context.setShadow(offset: .zero, blur: 0, color: nil)
             }
             NSGraphicsContext.restoreGraphicsState()
             guard let data = bitmap.representation(using: .png, properties: [:]) else {

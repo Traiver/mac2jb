@@ -6,6 +6,7 @@ cd "$(dirname "$0")"
 # Verify required release files exist.
 for path in \
     README.md \
+    CHANGELOG.md \
     LICENSE \
     .gitignore \
     .github \
@@ -46,6 +47,7 @@ mkdir -p "$TMP/mac2jb"
 # Copy release source files.
 for item in \
     README.md \
+    CHANGELOG.md \
     LICENSE \
     .gitignore \
     .github \

@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 'use strict';
-// OunceCake owns one selected game/FTP attempt inside this app's existing held run.
+// OunceCake owns one selected game/HTTP server attempt inside this app's existing held run.
 process.umask(0o077);
 const fs=require('node:fs/promises'),sync=require('node:fs'),path=require('node:path'),net=require('node:net'),crypto=require('node:crypto');
-const PIN='e3bcbd229be2229d44f036455adddda921ade3b2';
-const NATIVE_SHA='9af1776daae66e5566b9fb52e9017b6b78203e4c93d3b63d7000f0196eb5ff1e';
+const {runPreparation,canRawFallback}=require('../vendor/OunceCake/engine/preparation.cjs');
+const PIN='6dfd7750752f8b6c18f2c40b34fdadc628cd9a6e';
+const NATIVE_SHA='857153593a13bc0cc41b3a7da49fdc828067c12dad1ea3e7ea233a78e8d7b1a6';
 const check=(value,message)=>{if(!value)throw Error(message);};
 const blocked=error=>Boolean(error?.cleanupBlocked||error?.errors?.some(blocked));
 async function verifySnapshot(root){
@@ -20,11 +21,11 @@ async function verifySnapshot(root){
   check(info.isFile()&&!info.isSymbolicLink()&&info.size<=2*1024*1024&&await fs.realpath(file)===file,'Invalid bundled OunceCake source.');
   check(crypto.createHash('sha256').update(await fs.readFile(file)).digest('hex')===match[1],'Changed bundled OunceCake file: '+match[2]);
  }
- check(names.size===17&&names.has('LICENSE')&&names.has('engine/oz-code/native.bin'),'Incomplete OunceCake snapshot.');
+ check(names.size===33&&names.has('LICENSE')&&names.has('engine/oz-code/native.bin'),'Incomplete OunceCake snapshot.');
  const upstream=(await fs.readFile(path.join(root,'packaging/OunceCake-upstream-SHA256SUMS'),'utf8')).trim().split('\n');
- check(upstream.length===17&&upstream.includes(NATIVE_SHA+'  engine/oz-code/native.bin'),'Missing pinned OunceCake upstream inventory.');
+ check(upstream.length===31&&upstream.includes(NATIVE_SHA+'  engine/oz-code/native.bin'),'Missing pinned OunceCake upstream inventory.');
  const image=await fs.readFile(path.join(vendor,'engine/oz-code/native.bin'));
- check(image.length===10813&&crypto.createHash('sha256').update(image).digest('hex')===NATIVE_SHA,'Changed OunceCake native image.');
+ check(image.length===16180&&crypto.createHash('sha256').update(image).digest('hex')===NATIVE_SHA,'Changed OunceCake native image.');
  return {vendor,image,ready:true,application:'OunceCake',version:'1.0.0',commit:PIN,files:names.size,nativeImageSha256:NATIVE_SHA};
 }
 async function privateJSON(file,run){
@@ -50,21 +51,25 @@ async function validateAttachment(run){
  return {current,root,proof,layout};
 }
 function validateConfiguration(value){
- check(value&&typeof value==='object'&&!Array.isArray(value)&&net.isIPv4(value.consoleAddress)&&value.port===2121,'Enter the console’s IPv4 address and FTP port2121.');
- return {consoleAddress:value.consoleAddress,port:2121};
+ const port=8080;
+ check(value&&typeof value==='object'&&!Array.isArray(value)&&net.isIPv4(value.consoleAddress)&&value.port===port,'Enter the console’s IPv4 address and server port.');
+ return {consoleAddress:value.consoleAddress,port};
 }
 function catalogEntries(games){
  check(Array.isArray(games)&&games.length<=1000,'OunceCake requires a bounded game catalog.');
- check(games.length>0,'No games were found. Check that the game is installed or its game card is inserted.');
+ check(games.length>0,'No exportable games or system titles were found.');
  const ids=new Set();
+ const systemKinds=['system-program','system-data','firmware-nca'];
  const output=games.map(game=>{
   check(game&&/^[0-9a-f]{16}$/.test(game.title)&&!ids.has(game.title)&&Array.isArray(game.storages)&&game.storages.length>0&&
-   game.storages.every(id=>[2,4,5].includes(id)),'OunceCake returned invalid game metadata.');
+   (game.kind===undefined||['game',...systemKinds].includes(game.kind))&&
+   game.storages.every(id=>(systemKinds.includes(game.kind)?[3]:[2,4,5]).includes(id))&&
+   (game.version===undefined||(Number.isInteger(game.version)&&game.version>=0&&game.version<=0xffffffff)),'OunceCake returned invalid game metadata.');
   ids.add(game.title);let name='';
   for(const char of String(game.name||'Unknown title').replace(/[\x00-\x1f\x7f-\x9f\u2028-\u202e\u2066-\u2069]/g,' ').trim()){
    if(Buffer.byteLength(name+char)>160)break;name+=char;
   }
-  return {titleId:game.title,name:name||'Unknown title',storages:[...new Set(game.storages)]};
+  return {titleId:game.title,name:name||'Unknown title',storages:[...new Set(game.storages)],...(game.kind?{kind:game.kind}:{}),...(game.version!==undefined?{version:game.version}:{})};
  });
  check(Buffer.byteLength(JSON.stringify(output))<=512*1024,'OunceCake game catalog is too large.');return output;
 }
@@ -72,8 +77,10 @@ async function main(args=process.argv.slice(2),options={}){
  const root=options.root||path.resolve(__dirname,'..');
  const snapshot=await (options.verifySnapshot||verifySnapshot)(root);
  const label=snapshot.application||'OunceCake';
+ const port=8080;
+ const loadModules=()=>Object.fromEntries(['session','content','mounts'].map(name=>[name,require(path.join(snapshot.vendor,'engine',name+'.cjs'))]).concat([['server',require(path.join(snapshot.vendor,'engine/server.cjs'))],...(sync.existsSync(path.join(snapshot.vendor,'engine/exports.cjs'))?[['exports',require(path.join(snapshot.vendor,'engine/exports.cjs'))]]:[])]));
  if(args.length===1&&args[0]==='--self-test'){
-  for(const name of ['session','content','mounts','ftp'])require(path.join(snapshot.vendor,'engine',name+'.cjs'));
+  loadModules();
   const {vendor,image,...result}=snapshot;process.stdout.write(JSON.stringify(result)+'\n');return result;
  }
  check(args.length===1,'Usage: gui-ouncecake.cjs RUN_DIRECTORY (configuration and game selection on stdin)');
@@ -111,32 +118,51 @@ async function main(args=process.argv.slice(2),options={}){
    application:label,version:snapshot.version||'local',commit:snapshot.commit||null,
    customPackageFingerprint:snapshot.customPackageFingerprint||null,
    nativeImageSha256:snapshot.nativeImageSha256,status:'preparing',
-   started:new Date().toISOString(),consoleAddress:config.consoleAddress,port:2121};await save();
+   started:new Date().toISOString(),consoleAddress:config.consoleAddress,port};await save();
   isLive=options.isLive||(()=>{try{const value=JSON.parse(sync.readFileSync(path.join(run.directory,'result.json'),'utf8'));return value.verified===true&&value.rpc?.mode==='held'&&value.rpc?.state==='listening'&&!value.error;}catch{return false;}});
   check(isLive(),'The original held session is no longer live.');
   const marker=JSON.stringify({application:label,started:report.started});
   // Share the existing one-application marker with the GPU launcher and Stremio.
   await fs.writeFile(path.join(run.directory,'.mac2jb-hblauncher-attempt.json'),marker,{flag:'wx',mode:0o600});
   await fs.writeFile(path.join(run.directory,'.mac2jb-ouncecake-attempt.json'),marker,{flag:'wx',mode:0o600});
-  const modules=options.modules||Object.fromEntries(['session','content','mounts','ftp'].map(name=>[name,require(path.join(snapshot.vendor,'engine',name+'.cjs'))]));
+  const modules=options.modules||loadModules();
   emit('started',{message:'Preparing '+label+' game export. Keep SmileBASIC and mac2jb open.'});
   monitor=setInterval(()=>{if(!isLive())stop();},1000);monitor.unref();
   try{attachment=await modules.session.attachGame(run.directory);}
   catch(error){error.cleanupBlocked=true;throw error;}
   check(attachment.live.session===run.proof.session,'OunceCake attached to a different native session.');
   if(!stopping){
-   emit('progress',{message:'Reading installed games.'});
-   const games=catalogEntries(await modules.content.discoverGames({...attachment,shouldStop:()=>stopping}));
-   if(!stopping){games.forEach(game=>titles.add(game.titleId));waiting=true;report.status='choosing';await save();emit('catalog',{games,message:'Choose the game to expose through read-only FTP.'});}
+   emit('progress',{message:'Reading installed games and system titles.'});
+   const games=catalogEntries(await (modules.exports?modules.exports.discoverExports({attachment,content:modules.content,shouldStop:()=>stopping}):modules.content.discoverGames({...attachment,shouldStop:()=>stopping})));
+   if(!stopping){games.forEach(game=>titles.add(game.titleId));waiting=true;report.status='choosing';await save();emit('catalog',{games,message:'Choose the game, system title or firmware export to expose through read-only HTTP/WebDAV.'});}
    const title=stopping?null:await selection;
    if(title&&!stopping){
-    report.titleId=title;report.status='mounting';await save();emit('progress',{message:'Preparing the selected game, updates and DLC. This can take several minutes.'});
-    let prepared;try{prepared=await modules.mounts.prepareGame({attachment,title,shouldStop:()=>stopping});}
-    catch(error){error.cleanupBlocked=true;throw error;}
+    const entry=games.find(item=>item.titleId===title);
+    const preparationHandles=new Set(attachment.s.handles);
+    report.titleId=title;report.exportKind=entry.kind||'game';report.status='mounting';await save();emit('progress',{message:'Preparing the selected read-only export. This can take several minutes.'});
+    const prepare=raw=>runPreparation(shouldStop=>modules.exports?
+     modules.exports.prepareExport({attachment,entry,raw,mounts:modules.mounts,content:modules.content,shouldStop}):
+     modules.mounts.prepareGame({attachment,title,shouldStop}),
+     {timeoutMs:options.preparationTimeoutMs||120000,shouldStop:()=>stopping,onProgress:message=>emit('progress',{message})});
+    let prepared;
+    try{prepared=await prepare(false);}
+    catch(error){
+     if(canRawFallback(error)&&modules.exports?.prepareTitleNcas&&attachment.s.threads.size===0&&!stopping){
+      try{
+      const baseline=preparationHandles;
+      for(const handle of [...attachment.s.handles].reverse())if(!baseline.has(handle))await attachment.s.close(handle);
+      check([...attachment.s.handles].every(handle=>baseline.has(handle)),'Partial game handles remain open');
+      report.rawFallbackReason=error.message;report.exportKind='game-nca';
+      emit('progress',{message:'No usable ELicense. Preparing original encrypted NCAs.'});
+      prepared=await prepare(true);
+      }catch(rawError){rawError.cleanupBlocked=true;throw rawError;}
+     }else{error.cleanupBlocked=error.cleanupBlocked||error.code!=='PREPARATION_TIMEOUT';throw error;}
+    }
+    report.exportInfo=prepared.exportInfo||null;
     if(!stopping){
-     server=await modules.ftp.deployFtp({attachment,image:snapshot.image,...prepared,port:2121});
-     check(!stopping&&isLive(),'The original held session ended during FTP startup.');
-     report.status='running';await save();emit('running',{host:config.consoleAddress,port:2121,ftpURL:'ftp://'+config.consoleAddress+':2121',message:'OunceCake read-only FTP is running. Use Binary/Image mode.'});
+     server=await modules.server.deployServer({attachment,image:snapshot.image,...prepared,port});
+     check(!stopping&&isLive(),'The original held session ended during server startup.');
+     report.status='running';await save();emit('running',{host:config.consoleAddress,port,httpURL:'http://'+config.consoleAddress+':'+port+'/',message:label+' read-only HTTP/WebDAV server is running.'});
      await stopped;
     }
    }
@@ -144,7 +170,7 @@ async function main(args=process.argv.slice(2),options={}){
  }catch(error){failure=error;cleanupBlocked=blocked(error);}
  finally{
   clearTimeout(configurationTimer);clearInterval(monitor);waiting=false;
-  if(server&&!cleanupBlocked){try{check(isLive(),'The held native session ended before FTP cleanup.');report.shutdown=await server.close();check(report.shutdown?.nativeStopped===true&&report.shutdown?.joined===true&&report.shutdown?.mappingsCleared===true,'OunceCake did not prove native cleanup.');}
+  if(server&&!cleanupBlocked){try{check(isLive(),'The held native session ended before server cleanup.');report.shutdown=await server.close();check(report.shutdown?.nativeStopped===true&&report.shutdown?.joined===true&&report.shutdown?.mappingsCleared===true,'OunceCake did not prove native cleanup.');}
    catch(error){failure ||= error;cleanupBlocked=true;}}
   if(attachment&&!cleanupBlocked){try{await attachment.close();check(attachment.s.base===0&&attachment.s.handles.size===0&&attachment.s.threads.size===0,'OunceCake attachment cleanup was deferred.');}
    catch(error){failure ||= error;cleanupBlocked=true;}}
@@ -157,7 +183,7 @@ async function main(args=process.argv.slice(2),options={}){
    if(options.waitBlocked)await options.waitBlocked();
    else await new Promise(resolve=>{const timer=setInterval(()=>{if(!isLive||!isLive()){clearInterval(timer);resolve();}},1000);});
   }else if(failure)emit('failed',{cleanupBlocked:false,message:failure.message+' This launch was not retried. Finish RPC and restart the console.'});
-  else emit('stopped',{message:label+' native FTP stopped, executable mappings removed and owned handles released.'});
+  else emit('stopped',{message:label+' native server stopped, executable mappings removed and owned handles released.'});
   input.removeListener('data',data);input.removeListener('end',ended);input.pause();process.removeListener('SIGTERM',stop);process.removeListener('SIGINT',stop);process.stdout.removeListener('error',pipeError);
  }
  if(failure||cleanupBlocked){const error=failure||Error('OunceCake cleanup was blocked.');error.homebrewReported=true;error.cleanupBlocked=cleanupBlocked;throw error;}

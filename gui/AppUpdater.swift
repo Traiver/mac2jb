@@ -36,7 +36,7 @@ private final class UpdateDownloadGuard: NSObject, URLSessionDownloadDelegate {
     @Published var checksAutomatically: Bool {
         didSet { defaults.set(checksAutomatically, forKey: "checkUpdatesAutomatically") }
     }
-    static let requirementCacheKey = "validatedRequiredUpdateRelease-v1"
+    static let requirementCacheKey = "validatedRequiredUpdateRelease-traiver-v1"
     private let defaults: UserDefaults
     private let installedVersion: String?
     private let installedBuild: Int?
@@ -108,7 +108,7 @@ private final class UpdateDownloadGuard: NSObject, URLSessionDownloadDelegate {
         state = .checking; message = requiredUpdate ? requiredMessage : "Checking for updates…"
         task = Task {
             do {
-                let url = URL(string: "https://api.github.com/repos/cpypwn/mac2jb/releases/latest")!
+                let url = URL(string: "https://api.github.com/repos/Traiver/mac2jb/releases/latest")!
                 let file = try await fetchFile(url, limit: 1024 * 1024)
                 defer { try? FileManager.default.removeItem(at: file) }
                 let release = try JSONDecoder().decode(UpdateRelease.self, from: Data(contentsOf: file))
@@ -163,7 +163,7 @@ private final class UpdateDownloadGuard: NSObject, URLSessionDownloadDelegate {
             do {
                 let root = try Self.makeStagingDirectory(parent: stagingParent)
                 diagnosticURL = root.appendingPathComponent("update.log")
-                log("Downloading stable release \(candidate.version.text) from cpypwn/mac2jb.")
+                log("Downloading stable release \(candidate.version.text) from Traiver/mac2jb.")
                 let sums = try await fetchFile(candidate.checksums.browser_download_url, limit: 16384,
                                                 expected: candidate.checksums.size)
                 defer { try? FileManager.default.removeItem(at: sums) }

@@ -109,7 +109,7 @@ function fixture(t, options = {}) {
       "fs.writeFileSync('custom-entry-used',process.argv[2]);",
       "const emit=(type,fields={})=>console.log('MAC2JB_HOMEBREW '+JSON.stringify({type,path:process.argv[2],...fields}));",
       "let config,buffer='';emit('started');",
-      "process.stdin.on('data',bytes=>{buffer+=bytes;let at;while((at=buffer.indexOf('\\n'))>=0){const line=buffer.slice(0,at);buffer=buffer.slice(at+1);if(!line)continue;const item=JSON.parse(line);if(!config){config=item;fs.writeFileSync('custom-config',JSON.stringify(item));emit('catalog',{games:[{titleId:'0100000000000001',name:'Fixture game',storages:[4]}]});}else if(item.action==='select-game'){fs.writeFileSync('custom-selection',JSON.stringify(item));emit('running',{host:config.consoleAddress,port:2121,ftpURL:'ftp://'+config.consoleAddress+':2121'});}}});",
+      "process.stdin.on('data',bytes=>{buffer+=bytes;let at;while((at=buffer.indexOf('\\n'))>=0){const line=buffer.slice(0,at);buffer=buffer.slice(at+1);if(!line)continue;const item=JSON.parse(line);if(!config){config=item;fs.writeFileSync('custom-config',JSON.stringify(item));emit('catalog',{games:[{titleId:'0100000000000001',name:'Fixture game',storages:[4]}]});}else if(item.action==='select-game'){fs.writeFileSync('custom-selection',JSON.stringify(item));emit('running',{host:config.consoleAddress,port:8080,httpURL:'http://'+config.consoleAddress+':8080/'});}}});",
       "process.on('SIGTERM',()=>{emit('stopped');process.exit(0);});process.stdin.resume();setInterval(()=>{},1000);"
     ].join('\n'));
   } else {
@@ -469,10 +469,10 @@ test('a direct OunceCake-compatible fork uses held RPC and the game catalog',{ti
   assert.deepEqual(catalog.games,[{titleId:'0100000000000001',name:'Fixture game',storages:[4]}]);
   session.send({action:'select-ouncecake-game',titleId:catalog.games[0].titleId});
   const running=await session.wait('homebrew-running');
-  assert.equal(running.ftpURL,'ftp://192.0.2.20:2121');
+  assert.equal(running.httpURL,'http://192.0.2.20:8080/');
   const config=JSON.parse(fs.readFileSync(path.join(session.root,'custom-config'),'utf8'));
   assert.equal(config.consoleAddress,'192.0.2.20');
-  assert.equal(config.port,2121);
+  assert.equal(config.port,8080);
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(session.root,'custom-selection'),'utf8')),
     {action:'select-game',titleId:catalog.games[0].titleId});
   session.send({action:'finish'});
@@ -691,7 +691,7 @@ function ounceFixture(t, options={}) {
     fs.writeFileSync('homebrew-pid',String(process.pid));
     fs.appendFileSync('homebrew-invocations.txt',process.argv[2]+'\n');
     function running(){const host=options.wrongEndpoint?'192.0.2.50':config.consoleAddress;
-      emit('running',{host,port:2121,ftpURL:'ftp://'+host+':2121'});
+      emit('running',{host,port:8080,httpURL:'http://'+host+':8080/'});
       if(options.exitAfterRunningZero)setTimeout(()=>process.exit(0),10);
       if(options.cleanupBlocked)setTimeout(()=>emit('failed',{cleanupBlocked:true}),20);
     }
@@ -731,14 +731,14 @@ test('OunceCake requires confirmed held RPC, an explicit console IP and one tool
   const session=ounceFixture(t);
   await session.wait('post-run-ready');session.send({action:'launch-ouncecake',consoleAddress:'192.0.2.20'});await session.wait('action-rejected');
   session.send({action:'post-run',keepRPC:true,dumpFirmware:false});await session.wait('rpc-held');
-  for(const consoleAddress of [undefined,'192.0.2.20:2121']){session.send({action:'launch-ouncecake',consoleAddress});await session.wait('action-rejected',consoleAddress===undefined?2:3);}
+  for(const consoleAddress of [undefined,'192.0.2.20:8080/']){session.send({action:'launch-ouncecake',consoleAddress});await session.wait('action-rejected',consoleAddress===undefined?2:3);}
   assert.equal(fs.existsSync(path.join(session.root,'homebrew-invocations.txt')),false);
   session.send({action:'launch-ouncecake',consoleAddress:'192.0.2.20'});const catalog=await session.wait('homebrew-catalog');
   assert.deepEqual(catalog.games,[ounceGame]);
-  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(session.root,'ounce-config.json'),'utf8')),{consoleAddress:'192.0.2.20',port:2121});
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(session.root,'ounce-config.json'),'utf8')),{consoleAddress:'192.0.2.20',port:8080});
   session.send({action:'launch-mintbrew'});await session.wait('action-rejected',4);
   session.send({action:'select-ouncecake-game',titleId:ounceGame.titleId});const running=await session.wait('homebrew-running');
-  assert.equal(running.host,'192.0.2.20');assert.equal(running.port,2121);assert.equal(running.ftpURL,'ftp://192.0.2.20:2121');
+  assert.equal(running.host,'192.0.2.20');assert.equal(running.port,8080);assert.equal(running.httpURL,'http://192.0.2.20:8080/');
   session.send({action:'finish'});assert.equal((await session.done).code,0);
   assert.equal(fs.readFileSync(path.join(session.host,'hbl-was-stopped.txt'),'utf8'),'true');
   assert.equal(fs.readFileSync(path.join(session.root,'homebrew-invocations.txt'),'utf8').trim().split('\n').length,1);

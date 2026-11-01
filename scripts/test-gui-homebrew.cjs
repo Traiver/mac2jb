@@ -103,7 +103,7 @@ test('GPUBrewLauncher selects its pinned snapshot, own assets and exact graphics
 test('MintBrew uses its merged app library and distinct graphics readiness',()=>{
   const selected=applicationConfig('mintbrew');
   assert.equal(selected.vendor,'MintBrew');
-  assert.equal(selected.name,'MintBrew');
+  assert.equal(selected.name,'MistBrew');
   assert.equal(selected.source.format,'mintbrew-v1');
   assert.equal(selected.owners.find(owner=>owner.role==='graphics').ready,
     'MintBrew game event source ready.');
