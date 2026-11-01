@@ -7,12 +7,7 @@ See [CHANGELOG.md](CHANGELOG.md) for details.
 
 ## fork highlights
 
-- MistBrew (formerly MintBrew) adds a soft ice-blue appearance on Mac and Switch.
-  mac2jb keeps its short app name and face icon, with a new glass tile. Native
-  Liquid Glass is used on macOS 26 and newer, with compatible material and
-  Reduce Transparency fallbacks. Internal vendor paths remain unchanged.
-
-
+- OunceCake now uses http instead of ftp
 - export extracted system-title files, elicense titles like GameCube NSO or original registered firmware NCAs.
 - download original installed title NCAs without preparing an ELicense; missing
   or unusable licenses can fall back to the encrypted export after safe cleanup.
