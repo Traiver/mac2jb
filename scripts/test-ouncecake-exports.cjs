@@ -89,3 +89,22 @@ test('changed system title version is refused before mounting',async()=>{
 test('game preparation still uses the existing game/update/DLC pipeline',async()=>{
  let called=false;const value=await prepareExport({attachment:{},entry:{titleId:id},mounts:{async prepareGame(args){called=true;assert.equal(args.title,id);return 'game';}}});assert.equal(called,true);assert.equal(value,'game');
 });
+
+test('title folders preserve the game identity through category selection and sanitize Windows path characters',()=>{
+ const {titleLabel}=require('../vendor/OunceCake/engine/exports.cjs');
+ assert.equal(titleLabel({titleId:'0400486024dec000',name:'The Legend of Zelda: Ocarina of Time'}),'The Legend of Zelda Ocarina of Time [0400486024dec000]');
+ assert.equal(titleLabel({titleId:id,name:'Base',titleName:'Game / Test?'}),'Game Test ['+id+']');
+ assert.ok(Buffer.byteLength(titleLabel({titleId:id,name:'あ'.repeat(300)}))<=220);
+});
+test('title folder namespaces public paths without altering private NCA backing paths',()=>{
+ const folder='The Legend of Zelda Ocarina of Time [0400486024dec000]';
+ const index=mounts.buildIndex([{path:'/base/exefs',kind:'filesystem',mount:0,entries:[{path:'/main',sourcePath:'/original/main',type:'file',size:32}]}],folder);
+ assert.equal(indexFiles(index)[0].sourcePath,'/original/main');
+ const strings=Number(index.readBigUInt64LE(32));assert.ok(index.subarray(strings).includes(Buffer.from(folder+'\0')));
+ assert.throws(()=>mounts.buildIndex([],'../escape'),/invalid export folder/);
+});
+test('selected category exports use the original title folder',async()=>{
+ let root;await prepareExport({entry:{titleId:id,name:'Update',titleName:'Original Game',exportPart:'update'},part:'update',mounts:{async prepareGame(args){root=args.exportRoot;assert.equal(args.part,'update');return {};}}});assert.equal(root,'Original Game ['+id+']');
+});
+
+test('firmware export folder omits its internal sentinel identifier',()=>{assert.equal(require('../vendor/OunceCake/engine/exports.cjs').titleLabel({titleId:FIRMWARE_ID,name:'[Firmware] All registered original NCAs',kind:'firmware-nca'}),'[Firmware] All registered original NCAs');});

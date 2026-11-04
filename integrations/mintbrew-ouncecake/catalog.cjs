@@ -7,4 +7,5 @@ function views(entries){
  if(system.length)root.push({name:'[Folder] System Files ('+system.length+')',navigation:'system'});
  return {root,system:[{name:'[..] Back',navigation:'root'},...system]};
 }
-module.exports={views};
+function parts(entry){return [{name:'[..] Back',navigation:'root'},...['Base','Update','DLC','Additional Content'].map((name,i)=>({...entry,titleName:entry.titleName||entry.name,name,exportPart:['base','update','dlc','additional'][i]}))];}
+module.exports={views,parts};

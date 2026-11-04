@@ -32,8 +32,8 @@ async function discoverExports({attachment, shouldStop=()=>false, content=conten
   const cancel=()=>throwIfCancelled(shouldStop);
   cancel();const games=await content.discoverGames({...attachment,shouldStop});cancel();
   if (!content.discoverSystemPrograms||!content.discoverSystemData) return games;
-  const programs=latest(await content.discoverSystemPrograms({...attachment}), 'system-program');cancel();
-  const data=latest(await content.discoverSystemData({...attachment}), 'system-data');cancel();
+  const programs=latest(await content.discoverSystemPrograms({...attachment,shouldStop}), 'system-program');cancel();
+  const data=latest(await content.discoverSystemData({...attachment,shouldStop}), 'system-data');cancel();
   const entries=[{title:FIRMWARE_ID,name:'[Firmware] All registered original NCAs',storages:[3],kind:'firmware-nca'},
     ...games,...programs,...data];
   check(entries.length<=1000,'too many titles for the display; catalog was not truncated');
@@ -134,33 +134,53 @@ async function prepareSystemTitle({attachment:a,entry,shouldStop=()=>false,conte
   }
   cancel();return prepared(views,sources,{kind:entry.kind,title:entry.titleId,version:source.version,absentSections:absent},mounts);
 }
-async function prepareExport(options){
-  const {entry,mounts=mountsDefault}=options;
-  if(options.raw&&entry.kind!=='firmware-nca')return prepareTitleNcas(options);
-  if(!entry.kind||entry.kind==='game')return mounts.prepareGame({...options,title:entry.titleId});
-  if(entry.kind==='firmware-nca')return prepareFirmwareNcas(options);
-  return prepareSystemTitle(options);
+function titleLabel(entry){
+ check(entry&&/^[0-9a-f]{16}$/.test(entry.titleId),'invalid export title ID');
+ const name=String(entry.titleName||entry.name||'Unknown title').normalize('NFC')
+  .replace(/[<>:"/\\|?*\x00-\x1f\x7f]/g,' ').replace(/\s+/g,' ').trim().replace(/[. ]+$/,'');
+ let safe='';for(const char of name||'Unknown title'){if(Buffer.byteLength(safe+char)>200)break;safe+=char;}
+ return safe.trim()+(entry.kind==='firmware-nca'?'':' ['+entry.titleId+']');
 }
-module.exports={FIRMWARE_ID,latest,discoverExports,walkFilesystem,prepareExport,prepareSystemTitle,prepareFirmwareNcas};
+async function prepareExport(options){
+ const {entry,mounts=mountsDefault}=options;
+ const exportRoot=titleLabel(entry);
+ const scoped={...options,exportRoot,mounts:{...mounts,buildIndex:views=>mounts.buildIndex(views,exportRoot)}};
+ if(options.raw&&entry.kind!=='firmware-nca')return prepareTitleNcas(scoped);
+ if(!entry.kind||entry.kind==='game')return mounts.prepareGame({...options,exportRoot,title:entry.titleId});
+ if(entry.kind==='firmware-nca')return prepareFirmwareNcas(scoped);
+ return prepareSystemTitle(scoped);
+}
+module.exports={titleLabel,FIRMWARE_ID,latest,discoverExports,walkFilesystem,prepareExport,prepareSystemTitle,prepareFirmwareNcas};
 
 // Read the original encrypted title content from NCM; no ES or decryption call is made.
 async function prepareTitleNcas({attachment:a,entry,shouldStop=()=>false,content=contentDefault,mounts=mountsDefault}){
  check(entry&&/^[0-9a-f]{16}$/.test(entry.titleId),'invalid raw title selection');
  const cancel=()=>throwIfCancelled(shouldStop),title=entry.titleId;
- const records=[{storages:entry.storages||[4,5,2]}];
- if(!entry.kind||entry.kind==='game'){
-  cancel();if(content.discoverUpdates)for(const row of await content.discoverUpdates({...a,title}))records.push({storages:[row.storage],update:{contentTitle:row.contentTitle,version:row.version}});
-  cancel();if(content.discoverDlc)for(const row of await content.discoverDlc({...a,title}))records.push({storages:[row.storage],dlc:{contentTitle:row.contentTitle,version:row.version}});
+ const game=!entry.kind||entry.kind==='game';
+ const records=[];
+ if(game&&content.discoverBase){
+  cancel();for(const row of await content.discoverBase({...a,title,shouldStop}))records.push({storages:[row.storage],base:row,contents:row.contents});
+ }
+ if(!records.length)records.push({storages:entry.storages||[4,5,2]});
+ if(game){
+  for(const [discover,key] of [['discoverUpdates','update'],['discoverDlc','dlc'],['discoverDataPatches','dataPatch']]){
+   cancel();if(content[discover])for(const row of await content[discover]({...a,title,shouldStop}))records.push({storages:[row.storage],[key]:row,contents:row.contents});
+  }
  }
  const resolved=new Map();
- for(const record of records)for(const storage of record.storages)for(const type of [1,2,3,4,5,6]){
-  cancel();
-  try{
-   const source=await content.resolveContent({...a,title,storage,contentType:type,update:record.update,dlc:record.dlc});
-   check(/^[0-9a-f]{32}$/.test(source.contentId),'invalid NCA content ID');
-   if(!resolved.has(source.contentId))resolved.set(source.contentId,source);
-  }catch(error){
-   if(![0xe05,0x21005,0x20a05,0xa05].includes(error.nativeResult?.canonical))throw error;
+ for(const record of records)for(const storage of record.storages){
+  const choices=record.contents?.length?record.contents:[1,2,3,4,5,6].map(contentType=>({contentType}));
+  for(const choice of choices){
+   cancel();
+   try{
+    // Original NCA export must never enter FS618, mount or ELicense preparation.
+    const source=await content.resolveContent({...a,root:undefined,title,storage,contentType:choice.contentType,
+      content:choice.contentId?choice:undefined,base:record.base,update:record.update,dlc:record.dlc,dataPatch:record.dataPatch});
+    check(/^[0-9a-f]{32}$/.test(source.contentId),'invalid NCA content ID');
+    if(!resolved.has(source.contentId))resolved.set(source.contentId,source);
+   }catch(error){
+    if(![0xe05,0x21005,0x20a05,0xa05].includes(error.nativeResult?.canonical))throw error;
+   }
   }
  }
  check(resolved.size>0,'no original title NCAs were found');

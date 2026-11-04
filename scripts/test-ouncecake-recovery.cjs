@@ -68,3 +68,5 @@ test('content without a RightsId needs neither ES enumeration nor an ELicense co
   domain:{},service:()=>assert.fail('no ES request is needed for content without a RightsId')});
  assert.equal(result,false);assert.equal(queried,1);
 });
+
+test('full multi-content exports receive a bounded ten-minute default budget',()=>{assert.equal(require('../vendor/OunceCake/engine/preparation.cjs').DEFAULT_TIMEOUT_MS,600000);});

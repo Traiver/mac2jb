@@ -4,14 +4,14 @@
 process.umask(0o077);
 const fs=require('node:fs/promises'),sync=require('node:fs'),path=require('node:path'),net=require('node:net'),crypto=require('node:crypto');
 const {runPreparation,canRawFallback}=require('../vendor/OunceCake/engine/preparation.cjs');
-const PIN='6dfd7750752f8b6c18f2c40b34fdadc628cd9a6e';
-const NATIVE_SHA='857153593a13bc0cc41b3a7da49fdc828067c12dad1ea3e7ea233a78e8d7b1a6';
+const PIN='40a35ff42676010f7d044495d27184d520ca02f6';
+const NATIVE_SHA='e6da4fb33f97a0be308ad9dac02952bbccc768607b838d2fe805e29e053d81bc';
 const check=(value,message)=>{if(!value)throw Error(message);};
 const blocked=error=>Boolean(error?.cleanupBlocked||error?.errors?.some(blocked));
 async function verifySnapshot(root){
  const vendor=path.join(root,'vendor/OunceCake');
  const provenance=JSON.parse(await fs.readFile(path.join(root,'packaging/OunceCake-provenance.json'),'utf8'));
- check(provenance.commit===PIN&&provenance.nativeImage?.sha256===NATIVE_SHA,'The bundled OunceCake provenance changed.');
+ check(provenance.commit===PIN&&provenance.httpBase?.commit==='6dfd7750752f8b6c18f2c40b34fdadc628cd9a6e'&&provenance.nativeImage?.sha256===NATIVE_SHA,'The bundled OunceCake provenance changed.');
  const rows=(await fs.readFile(path.join(root,'packaging/OunceCake-SHA256SUMS'),'utf8')).trim().split('\n');
  const names=new Set();
  for(const row of rows){
@@ -21,11 +21,11 @@ async function verifySnapshot(root){
   check(info.isFile()&&!info.isSymbolicLink()&&info.size<=2*1024*1024&&await fs.realpath(file)===file,'Invalid bundled OunceCake source.');
   check(crypto.createHash('sha256').update(await fs.readFile(file)).digest('hex')===match[1],'Changed bundled OunceCake file: '+match[2]);
  }
- check(names.size===33&&names.has('LICENSE')&&names.has('engine/oz-code/native.bin'),'Incomplete OunceCake snapshot.');
+ check(names.size===35&&names.has('LICENSE')&&names.has('engine/oz-code/native.bin'),'Incomplete OunceCake snapshot.');
  const upstream=(await fs.readFile(path.join(root,'packaging/OunceCake-upstream-SHA256SUMS'),'utf8')).trim().split('\n');
- check(upstream.length===31&&upstream.includes(NATIVE_SHA+'  engine/oz-code/native.bin'),'Missing pinned OunceCake upstream inventory.');
+ check(upstream.length===18&&upstream.includes('14c8478ec2920978dd7b7d09fef3264cd56f15684c226a860619e2d450805435  engine/oz-code/native.bin'),'Missing pinned OunceCake upstream inventory.');
  const image=await fs.readFile(path.join(vendor,'engine/oz-code/native.bin'));
- check(image.length===16180&&crypto.createHash('sha256').update(image).digest('hex')===NATIVE_SHA,'Changed OunceCake native image.');
+ check(image.length===16532&&crypto.createHash('sha256').update(image).digest('hex')===NATIVE_SHA,'Changed OunceCake native image.');
  return {vendor,image,ready:true,application:'OunceCake',version:'1.0.0',commit:PIN,files:names.size,nativeImageSha256:NATIVE_SHA};
 }
 async function privateJSON(file,run){

@@ -294,16 +294,16 @@ with zipfile.ZipFile(archive) as z:
                     raise ValueError('invalid OunceCake manifest')
                 expected[ounce_prefix + relative] = digest
             actual = {name for name in names if name.startswith(ounce_prefix) and not name.endswith('/')}
-            if len(expected) != 33 or actual != set(expected):
+            if len(expected) != 35 or actual != set(expected):
                 violations.append('incomplete or unexpected OunceCake source distribution')
             for name, digest in expected.items():
                 if name not in names or hashlib.sha256(z.read(name)).hexdigest() != digest:
                     violations.append('missing or changed OunceCake source: ' + name)
             native = ounce_prefix + 'engine/oz-code/native.bin'
-            if hashlib.sha256(z.read(native)).hexdigest() != '857153593a13bc0cc41b3a7da49fdc828067c12dad1ea3e7ea233a78e8d7b1a6':
+            if hashlib.sha256(z.read(native)).hexdigest() != 'e6da4fb33f97a0be308ad9dac02952bbccc768607b838d2fe805e29e053d81bc':
                 violations.append('changed pinned OunceCake native image')
             provenance = json.loads(z.read('mac2jb/packaging/OunceCake-provenance.json'))
-            if provenance.get('commit') != '6dfd7750752f8b6c18f2c40b34fdadc628cd9a6e' or provenance.get('license') != 'GPLv2':
+            if provenance.get('commit') != '40a35ff42676010f7d044495d27184d520ca02f6' or provenance.get('license') != 'GPLv2' or provenance.get('httpBase', {}).get('commit') != '6dfd7750752f8b6c18f2c40b34fdadc628cd9a6e':
                 violations.append('changed OunceCake upstream provenance')
             if b'GNU GENERAL PUBLIC LICENSE' not in z.read(ounce_prefix + 'LICENSE'):
                 violations.append('missing OunceCake GPL license text')

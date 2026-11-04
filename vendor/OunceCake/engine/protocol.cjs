@@ -52,6 +52,7 @@ function pathRequest(command, input, address, length = 0x301) {
 const names = new Map([
   [0x000a05, 'ContentNotFound'],
   [0x000e05, 'ContentMetaNotFound'],
+  [0x01e005, 'InvalidContentMetaKey'],
   [0x339a02, 'ProgramInfoNotFound'],
   [0x07d202, 'PartitionNotFound'],
   [0x07d802, 'NcaExternalKeyNotFound'],
@@ -96,7 +97,7 @@ function success(reply, label) {
 async function cleanup(steps, failure) {
   const errors = failure ? [failure] : [];
   for (const step of steps) {
-    try { await step(); } catch (error) { errors.push(error); }
+    try { await step(); } catch (error) { error.cleanupBlocked = true; errors.push(error); }
   }
   if (errors.length === 1) throw errors[0];
   if (errors.length) throw new AggregateError(errors, errors.map((error) => error.message).join('\n'));

@@ -156,8 +156,8 @@ async function registryReader(a) {
   return { memory, layout };
 }
 
-// your romfs. hand it over.
-async function openProgramRomfs({ attachment: a, title, storage, policy }) {
+// your program content. hand it over.
+async function openProgramContent({ attachment: a, title, storage, policy, manual = false }) {
   const controls = accessControls(policy, title);
   const reader = await registryReader(a);
   // random ID for telling the system "look this very real process that's totally the game wants data"
@@ -181,6 +181,14 @@ async function openProgramRomfs({ attachment: a, title, storage, policy }) {
       ],
     }), 'Register owned temporary program context');
     registered = true;
+    // special handling for game manuals
+    if (manual) {
+      const input = Buffer.alloc(16);
+      input.writeUInt32LE(4);
+      idBytes(title).copy(input, 8);
+      return a.domain.oneHandle(success(await a.s.ipc('Open composed game manual', a.root, 7, input),
+        'Open composed game manual'));
+    }
     return openCurrentProgramRomfs({ attachment: a, reader, owner });
   }, async () => {
     if (!registered) return;
@@ -325,17 +333,14 @@ async function programMapReader(attachment) {
   return { entries };
 }
 
-async function withProgramIndexMap({ attachment: a, title, runtimeProgramId, operation }) {
+async function withProgramIndexMap({ attachment: a, title, runtimeProgramId, programIndex = 0, operation }) {
   const reader = await programMapReader(a);
   const before = await reader.entries();
-  const mapping = { programId: runtimeProgramId, applicationId: title, programIndex: 0, flags: 0 };
   const existing = before.find((row) => row.programId === runtimeProgramId);
-  if (existing) {
-    return withCleanup(operation, async () => {
-    });
-  }
+  if (existing && existing.applicationId === title && existing.programIndex === programIndex) return operation();
+  const mapping = { programId: runtimeProgramId, applicationId: title, programIndex, flags: existing?.flags || 0 };
   // fs 810 counts 0 as a no-op
-  const active = normalized([...before, mapping]);
+  const active = normalized([...before.filter(row => row.programId !== runtimeProgramId), mapping]);
   let attempted = false;
   async function register(rows, label) {
     const bytes = mapBytes(rows);
@@ -359,4 +364,7 @@ async function withProgramIndexMap({ attachment: a, title, runtimeProgramId, ope
   });
 }
 
-module.exports = { openProgramRomfs, withProgramIndexMap };
+const openProgramRomfs = options => openProgramContent(options);
+const openProgramManual = options => openProgramContent({ ...options, manual: true });
+
+module.exports = { openProgramRomfs, openProgramManual, withProgramIndexMap };

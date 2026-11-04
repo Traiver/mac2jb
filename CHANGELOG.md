@@ -1,5 +1,12 @@
 # Changelog
 
+## mac2jb v0.7.0 — 2026-11-05
+
+- Update OunceCake with NSO activation, additional content, DLC updates and patched manuals.
+- Split large exports into Base / Update / DLC / Additional Content, with a ten-minute preparation limit.
+- Add title-name folders, TitleIDs, full-width labels and Japanese title rendering.
+- Improve WebDAV source handling and cleanup while retaining system, firmware and raw NCA exports.
+
 ## mac2jb v0.6.0-fork-traiver — 2026-11-01
 
 Based on cpypwn/mac2jb v0.6.0.

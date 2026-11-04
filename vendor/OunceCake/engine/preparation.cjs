@@ -1,6 +1,6 @@
 'use strict';
 // Cooperative deadline: never race a live native operation against resource cleanup.
-const DEFAULT_TIMEOUT_MS=120000;
+const DEFAULT_TIMEOUT_MS=600000;
 function timedOut(){return Object.assign(Error('Preparation timed out. Choose X for raw NCAs or another title.'),{code:'PREPARATION_TIMEOUT'});}
 async function runPreparation(operation,{timeoutMs=DEFAULT_TIMEOUT_MS,shouldStop=()=>false,onProgress=()=>{},progressMs=10000}={}){
  if(!Number.isFinite(timeoutMs)||timeoutMs<=0)throw Error('Invalid preparation deadline');

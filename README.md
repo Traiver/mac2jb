@@ -58,7 +58,7 @@ configuration, keep that setup.
 
 ### 2. install and load the usb driver
 
-1. extract the supplied v0.6.0-fork-traiver zip and open `mac2jb.app`.
+1. extract the supplied v0.7.0 zip and open `mac2jb.app`.
 2. if macOS blocks the app, open system settings → privacy & security and choose open anyway if offered, then reopen the app.
 3. click install & load driver… and approve the administrator prompt.
 4. if prompted, open system settings → privacy & security and allow the driver.
@@ -186,6 +186,21 @@ to stop. The ice-blue scrollbar at the right shows the current visible position.
 It is hidden when all entries fit on one page. Connect to the displayed HTTP/WebDAV address on port 8080
 with a browser or WinSCP (WebDAV, no TLS or credentials).
 
+Title rows use the full list width; long names can scale down to fit while retaining their TitleID. The firmware entry omits its internal sentinel ID.
+
+Japanese title glyphs use the Japanese font installed with macOS (not redistributed). Selected titles are rendered as Unicode image tiles on the Switch, including during preparation and transfer; operational messages and URLs retain their ASCII rendering.
+
+HTTP/WebDAV shares place all export paths below `<Title Name> [<TitleID>]`. Unsafe filename characters are replaced with spaces. Category exports keep the original game name, and title rows display their TitleID.
+
+Large game exports (file index above 8 MiB, or a safely recovered server allocation failure) open a category menu: **Base / Update / DLC / Additional Content**. The latter includes metadata, logos, control data, manuals and legal information across installed packages. Program RomFS/ExeFS and DLC Data remain in their respective categories. Empty categories return to the menu. Small titles keep the direct export; X still exports original NCAs. Known large titles are remembered for the held MistBrew run. The first detection requires preparing the catalog once. Category splitting reduces allocation size but cannot guarantee that an individually huge category fits available console memory.
+
+OunceCake also incorporates MissHexa's November 4 update: NSO title activation,
+additional program indices, control/logo/manual/legal content, DLC updates and
+patched-manual fixes. NSO titles must have been opened recently on the console.
+The primary program keeps `/base/romfs` and `/base/exefs`; additional program
+indices appear under `program/<index>`. Raw exports include secondary content
+and DLC updates. Only available filesystem sections are exposed.
+
 System titles expose their available extracted `exefs` and `romfs` sections
 under `/system-programs/<title-id>/` or `/system-data/<title-id>/`. A section
 absent from the selected NCA is omitted. The firmware entry exposes registered
@@ -199,7 +214,7 @@ console files; it does not modify or install system titles.
 Press B after downloads finish to stop the server and return to the list;
 hold B or Minus to return to MistBrew. Server stop, thread join and owned-handle
 cleanup must complete before another export starts. Preparation has a cooperative
-120-second deadline and progress messages every 10 seconds. After the deadline,
+10-minute deadline and progress messages every 10 seconds. After the deadline,
 the current console operation is awaited before cancelling and closing handles.
 This is not a hard kill of a native IPC operation. A transport failure or
 unproven native cleanup still retains resources and requires a console restart.

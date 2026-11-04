@@ -56,7 +56,7 @@ test('console FTP address is taken only from qualified Switch network state',()=
  assert.equal(value.subarray(128,128+value.readUInt32LE(16)).toString(),'http://192.0.2.20:8080/');
 });
 
-function fixture(t,{serverStopError,handleCloseError,detachError,prepareGame,exportsEngine,preparationTimeoutMs,realRaster=false,reuseDirectory,deployError}={}){
+function fixture(t,{serverStopError,handleCloseError,detachError,prepareGame,exportsEngine,preparationTimeoutMs,realRaster=false,reuseDirectory,deployError,rasterRows}={}){
  const directory=reuseDirectory||fs.mkdtempSync(path.join(os.tmpdir(),'mac2jb-ouncecake-service-'));
  t.after(()=>fs.rmSync(directory,{recursive:true,force:true}));
  const events={attach:0,detach:0,deployed:0,stopped:0,mounted:0,closed:[],order:[],fatal:[],writes:[]};
@@ -92,7 +92,7 @@ function fixture(t,{serverStopError,handleCloseError,detachError,prepareGame,exp
   liveCheck:async()=>true,
   verifyHeld:async()=>({run:{directory:'/run/switch-test',proof:{session:'switch-test'},
    connection:{addresses:{session:'switch-test'}}},snapshot:{image:Buffer.from('native'),nativeImageSha256:'abc'}}),
-  rasterGames:realRaster?undefined:async games=>Buffer.alloc(games.length*protocol.TILE_BYTES,0xf0),
+  rasterGames:rasterRows||(realRaster?undefined:async games=>Buffer.alloc(games.length*protocol.TILE_BYTES,0xf0)),
   onGameList:async()=>{events.order.push('title-ftp-resumed');},
   onFatal:error=>events.fatal.push(error)});
  return {instance,events,directory};
@@ -266,9 +266,9 @@ test('OunceCake can close and reopen in the same run even when old catalog files
  assert.equal(fs.readFileSync(path.join(first.directory,'ouncecake-games.json'),'utf8'),'old catalog');
  assert.equal(fs.readdirSync(first.directory).some(name=>name.startsWith('ouncecake-catalog-')),false);
 });
-test('verified HTTP allocation failure releases selected handles and returns to the catalog',async t=>{
+test('verified HTTP allocation failure releases selected handles and offers split export after cleanup',async t=>{
  const error=Object.assign(Error('HTTP server allocation failed'),{code:'HTTP_SERVER_ALLOCATION_FAILED',retrySafe:true,allocation:{bytes:4096000}});
- const {instance,events}=fixture(t,{deployError:error});await instance.start();await waitFor(()=>instance.report.status,'catalog');await instance.select(0);await waitFor(()=>!!instance.report.error,true);
+ const {instance,events}=fixture(t,{deployError:error});await instance.start();await waitFor(()=>instance.report.status,'catalog');await instance.select(0);await waitFor(()=>instance.report.catalogView,'parts');
  assert.equal(instance.report.status,'catalog');assert.equal(instance.report.allocationFailure.bytes,4096000);assert.deepEqual(events.closed,[101]);assert.equal(events.fatal.length,0);await instance.close();
 });
 test('unverified HTTP allocation never returns to the catalog or frees selected resources',async t=>{
@@ -313,4 +313,38 @@ test('catalog navigation header validates capacity and navigation metadata',()=>
  assert.throws(()=>protocol.header(1,1,'',-1),/navigation/);
  assert.throws(()=>protocol.header(1,1,'',0,1),/navigation/);
  assert.throws(()=>protocol.header(1,1,'',0,false,1002),/navigation/);
+});
+
+test('large export is split before deployment and category choices reach the exporter',async t=>{
+ const parts=[];let first=true;const {instance,events}=fixture(t,{exportsEngine:{async discoverExports(){return [{title:'0100000000000001',name:'Large game',storages:[4]}];},async prepareExport({attachment,part}){
+  parts.push(part);attachment.s.handles.add(101);const index=Buffer.alloc(first?9*1024*1024:64);first=false;return {index,sources:[{handle:101,kind:0,size:1}]};
+ }}});
+ await instance.start();await waitFor(()=>instance.report.status,'catalog');await instance.select(0);await waitFor(()=>instance.report.catalogView,'parts');
+ assert.equal(events.deployed,0);assert.deepEqual(events.closed,[101]);
+ for(let i=1;i<=4;i++){await instance.select(i);await waitFor(()=>instance.report.status,'running');await instance.back();await waitFor(()=>instance.report.status,'catalog');}
+ assert.deepEqual(parts,[undefined,'base','update','dlc','additional']);
+ await instance.back();await waitFor(()=>instance.report.catalogView,'root');await instance.select(0);await waitFor(()=>instance.report.catalogView,'parts');assert.equal(parts.length,5);await instance.close();
+});
+test('split menu labels are English and preserve the title identity',()=>{
+ const rows=require('../integrations/mintbrew-ouncecake/catalog.cjs').parts({titleId:'0100000000000001',name:'Large game'});
+ assert.deepEqual(rows.map(row=>row.name),['[..] Back','Base','Update','DLC','Additional Content']);assert.equal(rows[4].titleId,'0100000000000001');
+});
+
+test('selected Unicode title raster has a separate bounded slot and visibility flag',()=>{
+ assert.ok(protocol.TITLE_TILE_INDEX>=protocol.MAX_GAMES);
+ assert.ok(protocol.HEADER_BYTES+(protocol.TITLE_TILE_INDEX+1)*protocol.TILE_BYTES<=protocol.STORAGE_BYTES);
+ assert.equal(protocol.header(2,1,'Preparing',0,false,0,true).readUInt32LE(28),1);
+ assert.equal(protocol.header(1,1).readUInt32LE(28),0);
+ assert.throws(()=>protocol.header(1,1,'',0,false,0,1));
+});
+
+test('Japanese selected title stays in its Unicode image tile while operational messages remain ASCII',async t=>{
+ const rows=[];const title='ゼルダの伝説 時のオカリナ';
+ const {instance,events}=fixture(t,{rasterRows:async games=>{rows.push(games);return Buffer.alloc(games.length*protocol.TILE_BYTES);},exportsEngine:{async discoverExports(){return [{title:'0400486024dec000',name:title,storages:[4]}];},async prepareExport(){return {index:Buffer.alloc(64),sources:[{handle:7}]};}}});
+ await instance.start();await waitFor(()=>instance.report.status,'catalog');await instance.select(0);await waitFor(()=>instance.report.status,'running');
+ const heading=rows.flat().find(row=>row.heading);assert.equal(heading.name,title);assert.equal(heading.titleId,'0400486024dec000');
+ assert.ok(events.writes.some(row=>row.address===0x500000000+protocol.HEADER_BYTES+protocol.TITLE_TILE_INDEX*protocol.TILE_BYTES));
+ const header=events.writes.findLast(row=>row.bytes.length===protocol.HEADER_BYTES).bytes;assert.equal(header.readUInt32LE(28),1);
+ await instance.back();await waitFor(()=>instance.report.status,'catalog');assert.equal(events.writes.findLast(row=>row.bytes.length===protocol.HEADER_BYTES).bytes.readUInt32LE(28),0);
+ await instance.close();
 });

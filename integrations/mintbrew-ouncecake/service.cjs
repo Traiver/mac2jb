@@ -6,13 +6,14 @@ const {promisify}=require('node:util');
 const protocol=require('./protocol.cjs');
 const catalog=require('./catalog.cjs');
 const layout=require('../../vendor/MintBrew/sdk/host/layout.cjs');
-const {runPreparation,canRawFallback}=require('../../vendor/OunceCake/engine/preparation.cjs');
+const {runPreparation,canRawFallback,DEFAULT_TIMEOUT_MS}=require('../../vendor/OunceCake/engine/preparation.cjs');
 const runFile=promisify(execFile);
+const LARGE_INDEX_BYTES=8*1024*1024;
 const check=(value,message)=>{if(!value)throw Error(message);};
 const blocked=error=>Boolean(error?.cleanupBlocked||error?.errors?.some(blocked));
 const recoverableContentError=error=>!blocked(error)&&!(error instanceof AggregateError)&&
  error?.code!=='FTP_CANCELLED'&&Boolean(error?.nativeResult||canRawFallback(error)||
-  ['PREPARATION_TIMEOUT','RAW_EXPORT_UNAVAILABLE'].includes(error?.code)||
+  ['PREPARATION_TIMEOUT','RAW_EXPORT_UNAVAILABLE','EXPORT_PART_EMPTY'].includes(error?.code)||
   (error?.code==='HTTP_SERVER_ALLOCATION_FAILED'&&error.retrySafe===true)||
   /^(Invalid RomFS:|Invalid server index:|Could not prepare |No installed base Program content was found|Content requires an original-content mount)/.test(error?.message||''));
 
@@ -32,7 +33,7 @@ function ipv4(data){
 }
 
 function create({rpc,menu,gpu,app,directory,root,runDirectory,sourceSession,
- onProgress=()=>{},onFatal=()=>{},onGameList=async()=>{},modules,verifyHeld,rasterGames,liveCheck,preparationTimeoutMs=120000}={}){
+ onProgress=()=>{},onFatal=()=>{},onGameList=async()=>{},modules,verifyHeld,rasterGames,liveCheck,preparationTimeoutMs=DEFAULT_TIMEOUT_MS}={}){
  check(rpc&&menu&&gpu&&app&&typeof directory==='string'&&typeof root==='string'&&
   typeof runDirectory==='string'&&typeof sourceSession==='string',
   'OunceCake requires the held MintBrew session');
@@ -51,14 +52,15 @@ function create({rpc,menu,gpu,app,directory,root,runDirectory,sourceSession,
  };
  let started=false,stopping=false,selected=false,status=protocol.STATES.reading;
  let task,attachment,server,run,games=[],failure,closing,nativeImage,baselineHandles;
- let allEntries=[],catalogs,view='root',generation=0,focus=0;
+ let allEntries=[],catalogs,view='root',generation=0,focus=0,partTitle,titleVisible=false;
+ const largeTitles=new Set();
  const report={session:rpc.a.session,sourceSession,started:new Date().toISOString(),status:'reading',
   resourcesRetained:true};
  const save=()=>fs.writeFile(path.join(directory,'mintbrew-ouncecake.json'),
   JSON.stringify(report,null,2)+'\n',{mode:0o600});
  const publish=async(state,message='',count=games.length)=>{
   status=state;report.status=Object.keys(protocol.STATES).find(key=>protocol.STATES[key]===state);
-  await rpc.write(mapped,protocol.header(state,count,message,generation,view==='system',focus));await save();
+  await rpc.write(mapped,protocol.header(state,count,message,generation,view!=='root',focus,titleVisible&&(state!==protocol.STATES.catalog||view==='parts')));await save();
  };
  const live=liveCheck||(async()=>{
   try{
@@ -146,9 +148,7 @@ function create({rpc,menu,gpu,app,directory,root,runDirectory,sourceSession,
   check(await live(),'OunceCake requires a live held RPC session');
   return snapshot;
  }
- async function showCatalog(nextView,nextFocus=0){
-  const next=catalogs[nextView];check(next&&next.length>0&&next.length<=protocol.MAX_GAMES,'OunceCake catalog exceeds its display capacity');
-  await publish(protocol.STATES.reading,nextView==='system'?'Opening System Files...':'Opening main list...');
+ async function rasterRows(next){
   let image;
   if(rasterGames)image=await rasterGames(next);
   else{
@@ -160,6 +160,19 @@ function create({rpc,menu,gpu,app,directory,root,runDirectory,sourceSession,
     image=await fs.readFile(output);
    }finally{await fs.rm(temporary,{recursive:true,force:true});}
   }
+  return image;
+ }
+ async function renderTitle(entry){
+  const image=await rasterRows([{name:entry.titleName||entry.name,titleId:entry.titleId,kind:entry.kind,heading:true}]);
+  check(image.length===protocol.TILE_BYTES,'Invalid title raster size');
+  await rpc.write(mapped+protocol.HEADER_BYTES+protocol.TITLE_TILE_INDEX*protocol.TILE_BYTES,image);
+  titleVisible=true;
+ }
+ async function showCatalog(nextView,nextFocus=0){
+  if(nextView!=='parts')titleVisible=false;
+  const next=catalogs[nextView];check(next&&next.length>0&&next.length<=protocol.MAX_GAMES,'OunceCake catalog exceeds its display capacity');
+  await publish(protocol.STATES.reading,nextView==='system'?'Opening System Files...':'Opening main list...');
+  const image=await rasterRows(next);
   check(image.length===next.length*protocol.TILE_BYTES&&protocol.HEADER_BYTES+image.length<=protocol.STORAGE_BYTES,'OunceCake catalog raster size differs');
   if(stopping)return;
   await rpc.write(mapped+protocol.HEADER_BYTES,image);
@@ -169,6 +182,14 @@ function create({rpc,menu,gpu,app,directory,root,runDirectory,sourceSession,
   report.systemTitles=catalogs.system.length-1;
   report.games=allEntries.filter(entry=>!entry.kind||entry.kind==='game').length;
   report.imageSha256=require('node:crypto').createHash('sha256').update(image).digest('hex');
+  await publish(protocol.STATES.catalog,'',games.length);
+ }
+ async function showParts(entry){
+  await renderTitle(entry);
+  partTitle=entry.titleId;largeTitles.add(partTitle);
+  await fs.writeFile(path.join(directory,'ouncecake-large-titles.json'),JSON.stringify([...largeTitles]),{mode:0o600});
+  catalogs.parts=catalog.parts(entry);
+  await showCatalog('parts',1);
   await publish(protocol.STATES.catalog,'',games.length);
  }
  async function discover(){
@@ -181,6 +202,7 @@ function create({rpc,menu,gpu,app,directory,root,runDirectory,sourceSession,
   allEntries=require(path.join(root,'scripts/gui-ouncecake.cjs')).catalogEntries(
    await (engine.exports?engine.exports.discoverExports({attachment,content:engine.content,shouldStop:()=>stopping}):engine.content.discoverGames({...attachment,shouldStop:()=>stopping})));
   if(stopping)return;
+  try{const ids=JSON.parse(await fs.readFile(path.join(directory,'ouncecake-large-titles.json'),'utf8'));check(Array.isArray(ids)&&ids.length<=1000&&ids.every(id=>/^[0-9a-f]{16}$/.test(id)),'Invalid large-title inventory');for(const id of ids)largeTitles.add(id);}catch(error){if(error.code!=='ENOENT')throw error;}
   catalogs=catalog.views(allEntries);
   check(attachment.s.threads.size===0,'OunceCake discovery left a native worker running');
   baselineHandles=new Set(attachment.s.handles);
@@ -204,13 +226,19 @@ function create({rpc,menu,gpu,app,directory,root,runDirectory,sourceSession,
    track((async()=>{
     await previous;if(stopping)return;
     const target=chosen.navigation;
-    const returnFocus=target==='root'?Math.max(0,catalogs.root.findIndex(entry=>entry.navigation==='system')):1;
+    const returnFocus=target==='root'?Math.max(0,catalogs.root.findIndex(entry=>view==='parts'?entry.titleId===partTitle:entry.navigation==='system')):1;
     await showCatalog(target,returnFocus);selected=false;
    })());
    return;
   }
+  if(!raw&&!chosen.exportPart&&largeTitles.has(chosen.titleId)){
+   selected=true;const previous=task;track((async()=>{await previous;if(stopping)return;await showParts(chosen);selected=false;})());return;
+  }
   selected=true;report.titleId=games[index].titleId;report.exportKind=games[index].kind||'game';delete report.error;delete report.rawFallbackReason;delete report.exportInfo;delete report.allocationFailure;
-  await publish(protocol.STATES.preparing,'Preparing '+games[index].name);
+  const selectedTitle=games[index].titleName||games[index].name;
+  await renderTitle(games[index]);
+  await publish(protocol.STATES.preparing,'Preparing export'+(games[index].kind==='firmware-nca'?'':' ['+games[index].titleId+']'));
+  onProgress('OunceCake: Exporting '+selectedTitle+' ['+games[index].titleId+']'+(games[index].exportPart?' - '+games[index].name:''));
   const previous=task;
   track((async()=>{
    await previous;
@@ -224,7 +252,7 @@ function create({rpc,menu,gpu,app,directory,root,runDirectory,sourceSession,
    if(stopping)return;
    const entry=games[index];
    const prepare=rawMode=>runPreparation(shouldStop=>engine.exports?
-    engine.exports.prepareExport({attachment,entry,raw:rawMode,mounts:engine.mounts,content:engine.content,shouldStop}):
+    engine.exports.prepareExport({attachment,entry,part:rawMode?undefined:entry.exportPart,raw:rawMode,mounts:engine.mounts,content:engine.content,shouldStop}):
     engine.mounts.prepareGame({attachment,title:entry.titleId,shouldStop}),
     {timeoutMs:preparationTimeoutMs,shouldStop:()=>stopping,onProgress});
    async function recover(error){
@@ -256,6 +284,10 @@ function create({rpc,menu,gpu,app,directory,root,runDirectory,sourceSession,
      try{prepared=await prepare(true);}catch(rawError){await recover(rawError);return;}
     }else{await recover(error);return;}
    }
+   if(!raw&&!entry.exportPart&&(!entry.kind||entry.kind==='game')&&prepared.index.length>LARGE_INDEX_BYTES){
+    await releaseSelectedHandles();if(stopping)return;
+    await showParts(entry);selected=false;report.titleId=null;await resumeTitleFtp();return;
+   }
    report.exportInfo=prepared.exportInfo||null;
    if(raw)report.exportKind=prepared.exportInfo?.kind||'game-nca';
    if(stopping)return;
@@ -264,6 +296,7 @@ function create({rpc,menu,gpu,app,directory,root,runDirectory,sourceSession,
    catch(error){
     if(error.allocation)report.allocationFailure=error.allocation;
     if(error.code==='HTTP_SERVER_ALLOCATION_FAILED'&&error.retrySafe===true&&!blocked(error)){
+     if(!raw&&!entry.exportPart&&(!entry.kind||entry.kind==='game')){await releaseSelectedHandles();if(stopping)return;await showParts(entry);selected=false;report.titleId=null;await resumeTitleFtp();return;}
      await recover(error);return;
     }
     throw error;
@@ -276,7 +309,7 @@ function create({rpc,menu,gpu,app,directory,root,runDirectory,sourceSession,
   })());
  }
  async function back(){
-  if(started&&!stopping&&!selected&&status===protocol.STATES.catalog&&view==='system')return select(0);
+  if(started&&!stopping&&!selected&&status===protocol.STATES.catalog&&view!=='root')return select(0);
   check(started&&!stopping&&selected&&status===protocol.STATES.running,
    'OunceCake HTTP/WebDAV is not running');
   await publish(protocol.STATES.closing,'Stopping the read-only HTTP/WebDAV worker...');

@@ -212,9 +212,12 @@ function encodeConfiguration({
     table.writeUInt32LE(source.handle, i * 16);
     table.writeUInt32LE(source.kind, i * 16 + 4);
 
-    if (source.kind === 2) table[i * 16 + 5] = source.attributes;
+    if (source.kind === 2 || source.kind === 3) {
+      table[i * 16 + 5] = source.attributes;
+      table[i * 16 + 6] = source.proxyType ?? 6;
+    }
 
-    table.writeBigUInt64LE(BigInt(source.size), i * 16 + 8);
+    table.writeBigUInt64LE(source.kind === 3 ? BigInt("0x" + source.programId) : BigInt(source.size), i * 16 + 8);
   });
 
   return { config, sources: table };

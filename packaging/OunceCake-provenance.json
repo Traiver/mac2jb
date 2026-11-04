@@ -1,14 +1,14 @@
 {
-  "repository": "https://github.com/Cellenseres/OunceCake",
-  "commit": "6dfd7750752f8b6c18f2c40b34fdadc628cd9a6e",
+  "repository": "https://github.com/misshexa66/OunceCake",
+  "commit": "40a35ff42676010f7d044495d27184d520ca02f6",
   "version": "1.0.0",
   "license": "GPLv2",
   "upstreamManifest": "OunceCake-upstream-SHA256SUMS",
   "distributionManifest": "OunceCake-SHA256SUMS",
   "nativeImage": {
     "path": "engine/oz-code/native.bin",
-    "bytes": 16180,
-    "sha256": "857153593a13bc0cc41b3a7da49fdc828067c12dad1ea3e7ea233a78e8d7b1a6"
+    "bytes": 16532,
+    "sha256": "e6da4fb33f97a0be308ad9dac02952bbccc768607b838d2fe805e29e053d81bc"
   },
   "modifications": [
     {
@@ -55,6 +55,50 @@
       "date": "2026-11-01",
       "file": "engine/server.cjs",
       "description": "Use twelve 256 KiB client read/cache windows to reduce fixed allocation by 48.75 MiB; diagnose allocation size and index size, allow retry only after confirmed cleanup, and never free an invalid nonzero pointer."
+    },
+    {
+      "date": "2026-11-04",
+      "file": "engine/content.cjs, engine/program.cjs, engine/fs-context.cjs, engine/mounts.cjs, engine/dlc.cjs",
+      "description": "Merge MissHexa 40a35ff NSO activation, all program indices/content sections, DLC updates and patched manuals; retain system discovery, standalone DLC, primary download paths, native ELicense contexts and cooperative cancellation."
+    },
+    {
+      "date": "2026-11-04",
+      "file": "engine/exports.cjs, engine/protocol.cjs",
+      "description": "Retain system/firmware exports and raw fallback; include explicit secondary content and DLC updates in raw exports without FS618 or ES calls; block retry on failed cleanup/restoration."
+    },
+    {
+      "date": "2026-11-04",
+      "file": "engine/server.cjs, engine/oz-code/native.c, engine/oz-code/native.h, engine/oz-code/native.bin",
+      "description": "Port source kinds 0..3 and whole filesystem transaction serialization to the retained Cellenseres HTTP/WebDAV server; rebuild native image from distributed sources. Keep qualified SDK functions, small buffers and proven stop/join cleanup rather than replacing them with the upstream FTP runtime."
+    },
+    {
+      "date": "2026-11-04",
+      "file": "engine/preparation.cjs",
+      "description": "Increase the bounded total preparation budget from two to ten minutes for multi-content exports; retain progress notifications and await native settlement before cleanup."
+    },
+    {
+      "date": "2026-11-04",
+      "file": "engine/mounts.cjs",
+      "description": "Support Base, Update, DLC and Additional Content export scopes. Resolve original program/manual dependencies without indexing unselected views; preserve file paths and report empty scopes safely."
+    },
+    {
+      "date": "2026-11-04",
+      "file": "engine/exports.cjs, engine/mounts.cjs",
+      "description": "Namespace HTTP/WebDAV exports under a sanitized title name [TitleID] folder while preserving source paths and category identity."
+    },
+    {
+      "date": "2026-11-04",
+      "file": "engine/exports.cjs",
+      "description": "Omit the internal firmware sentinel from the public firmware folder label."
     }
-  ]
+  ],
+  "httpBase": {
+    "repository": "https://github.com/Cellenseres/OunceCake",
+    "commit": "6dfd7750752f8b6c18f2c40b34fdadc628cd9a6e",
+    "manifest": "OunceCake-http-base-SHA256SUMS"
+  },
+  "upstreamNativeImage": {
+    "sha256": "14c8478ec2920978dd7b7d09fef3264cd56f15684c226a860619e2d450805435",
+    "bytes": 11099
+  }
 }

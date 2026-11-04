@@ -9,13 +9,13 @@ layout(location=0) out vec4 outColor;
 const uint HB_UP=8192u,HB_DOWN=32768u,HB_L=64u,HB_R=128u;
 #include "navigation.glsl"
 layout(set=0,binding=1,std430) readonly buffer OunceCakeData {uint words[];} payload;
-const uint TILE_BASE=4096u,TILE_WIDTH=768u,TILE_HEIGHT=32u,TILE_BYTES=12288u;
+const uint TILE_BASE=4096u,TILE_WIDTH=1408u,TILE_HEIGHT=32u,TILE_BYTES=11264u;
 float titlePixel(vec2 p,vec2 origin,uint index){
  ivec2 q=ivec2(floor(p-origin));
  if(any(lessThan(q,ivec2(0)))||q.x>=int(TILE_WIDTH)||q.y>=int(TILE_HEIGHT))return 0.0;
- uint address=TILE_BASE+index*TILE_BYTES+uint(q.y)*TILE_WIDTH/2u+uint(q.x)/2u;
+ uint address=TILE_BASE+index*TILE_BYTES+uint(q.y)*TILE_WIDTH/4u+uint(q.x)/4u;
  uint packed=(payload.words[address>>2u]>>((address&3u)*8u))&255u;
- return float((q.x&1)==0?packed>>4u:packed&15u)/15.0;
+ return float((packed>>uint(6-2*(q.x&3)))&3u)/3.0;
 }
 uint messageByte(uint index){
  uint address=128u+index;
@@ -50,6 +50,7 @@ void main(){
  uint status=payload.words[0]==0x31435a4fu?payload.words[1]:0u;
  if(status==1u){
   if(payload.words[4]>0u)col=mix(col,vec3(.99,.64,.57),messagePixel(p,vec2(195,270)));
+  else if(payload.words[7]!=0u)col=mix(col,ink,titlePixel(p,vec2(195,270),1001u));
   else col=mix(col,ink,text(p,vec2(195,260),payload.words[5]!=0u?TEXT_SYSTEM:TEXT_CHOOSE));
   uint count=min(payload.words[2],1001u),scroll=min(c.game.y,count>8u?count-8u:0u);
   for(uint i=0u;i<8u;i++){
@@ -76,6 +77,7 @@ void main(){
   }
   col=mix(col,muted,text(p,vec2(200,961),TEXT_SELECT));
  }else{
+  if(payload.words[7]!=0u)col=mix(col,ink,titlePixel(p,vec2(195,270),1001u));
   ivec4 label=status==2u?TEXT_PREPARING:status==3u?TEXT_READY:status==4u?TEXT_ERROR:status==5u?TEXT_CLOSING:TEXT_DISCOVER;
   col=mix(col,ink,text(p,vec2(195,315),label));
  }

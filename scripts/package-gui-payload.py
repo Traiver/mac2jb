@@ -55,6 +55,7 @@ RUNTIME_FILES = (
     'packaging/ftpd-sb-v0.1.0-provenance.json',
     'scripts/gui-ouncecake.cjs', 'packaging/OunceCake-provenance.json',
     'packaging/OunceCake-SHA256SUMS', 'packaging/OunceCake-upstream-SHA256SUMS',
+    'packaging/OunceCake-http-base-SHA256SUMS',
     'packaging/stremio-display-SHA256SUMS',
     'packaging/stremio-sample-provenance.json', 'scripts/install-driver.sh',
 )

@@ -15,17 +15,32 @@ function metaLabel(metaType) {
   if (metaType === 0x80) return 'application';
   if (metaType === 0x81) return 'update';
   if (metaType === 0x82) return 'DLC';
+  if (metaType === 0x84) return 'DLC update';
   if (metaType === 1) return 'system program';
   if (metaType === 2) return 'system data';
   return 'content';
 }
 
-async function discoverInstalled({ s, domain, service, title, metaType, kind, storages = USER_STORAGES }) {
+async function readContentMeta(s, database, key) {
+  const size = success(await s.ipc('Get content metadata size', database, 10, key), 'GetSize')
+    .data.readUInt32LE();
+  const address = s.base + 0x6000;
+  if (size < 8 || size > s.bytes - 0x6000) throw new Error('Content metadata is too large');
+  success(await s.ipc('Read content metadata', database, 1, key, {
+    receive: [{ address, size, mode: 0 }],
+  }), 'Get content metadata');
+  const meta = await s.readOwned(address, size);
+  if (meta.length !== size || 8 + meta.readUInt16LE() + meta.readUInt16LE(2) * 24 > size) throw new Error('Truncated content metadata');
+  return meta;
+}
+
+async function discoverInstalled({ s, domain, service, title, metaType, kind, storages = USER_STORAGES, shouldStop = () => false }) {
   const label = metaLabel(metaType);
   const ncm = await service('ncm');
   const records = [];
 
   for (const storage of storages) {
+    throwIfCancelled(shouldStop);
     let database;
 
     try {
@@ -40,6 +55,7 @@ async function discoverInstalled({ s, domain, service, title, metaType, kind, st
         const found = new Map();
 
         async function list(min, max) {
+          throwIfCancelled(shouldStop);
           const input = Buffer.alloc(32);
           input[0] = metaType;
           idBytes(title).copy(input, 8);
@@ -60,6 +76,7 @@ async function discoverInstalled({ s, domain, service, title, metaType, kind, st
           const total = reply.data.readInt32LE();
           const count = reply.data.readInt32LE(4);
 
+          if (count < 0 || count > capacity || total < count) throw new Error('Invalid content metadata count');
           const bytes = await s.readOwned(address, size);
 
           for (let i = 0; i < count; i++) {
@@ -70,7 +87,7 @@ async function discoverInstalled({ s, domain, service, title, metaType, kind, st
             const version = key.readUInt32LE(8);
 
             if (!found.has(contentTitle) || version > found.get(contentTitle).version) {
-              found.set(contentTitle, { contentTitle, version, storage });
+              found.set(contentTitle, { contentTitle, version, storage, metaKey: Buffer.from(key) });
             }
           }
 
@@ -93,6 +110,7 @@ async function discoverInstalled({ s, domain, service, title, metaType, kind, st
               contentTitle,
               version: latest.data.readUInt32LE(8),
               storage,
+              metaKey: Buffer.from(latest.data.subarray(0, 16)),
             });
             return;
           }
@@ -104,17 +122,36 @@ async function discoverInstalled({ s, domain, service, title, metaType, kind, st
 
         await list(0n, 0xffffffffffffffffn);
 
-        if (metaType === 0x82) {
+        if (metaType >= 0x80 && (metaType !== 0x80 || title !== '0000000000000000')) {
           for (const item of found.values()) {
-            const key = Buffer.alloc(16);
-            idBytes(item.contentTitle).copy(key);
-            key.writeUInt32LE(item.version, 8);
-            key[12] = metaType;
-
-            const owner = success(
-              await s.ipc('Verify installed DLC application', database, 22, key),
-              'GetOwnerApplicationId',
-            );
+            throwIfCancelled(shouldStop);
+            const meta = await readContentMeta(s, database, item.metaKey);
+            const headerSize = meta.readUInt16LE();
+            if ((metaType === 0x82 && headerSize < 8) || (metaType === 0x84 && headerSize < 16)) throw new Error('Truncated DLC extended metadata');
+            item.contents = [];
+            for (let i = 0; i < meta.readUInt16LE(2); i++) {
+              const info = meta.subarray(8 + meta.readUInt16LE() + i * 24);
+              item.contents.push({
+                contentId: info.subarray(0, 16).toString('hex'),
+                attributes: info[21] & 15,
+                contentType: info[22],
+                programIndex: info[23],
+              });
+            }
+            item.contents.sort((a, b) => a.programIndex - b.programIndex || a.contentType - b.contentType);
+            if (metaType === 0x82 || metaType === 0x84) {
+              const owner = meta.readBigUInt64LE(metaType === 0x82 ? 8 : 16);
+              if (owner !== BigInt('0x' + title)) {
+                found.delete(item.contentTitle);
+                continue;
+              }
+            }
+            if (metaType === 0x84) {
+              item.dataTitle = meta.readBigUInt64LE(8).toString(16).padStart(16, '0');
+            } else if (metaType === 0x82 && meta.readUInt16LE() >= 0x18) {
+              const patch = meta.readBigUInt64LE(24);
+              if (patch) item.dataPatchTitle = patch.toString(16).padStart(16, '0');
+            }
           }
         }
 
@@ -133,6 +170,8 @@ async function discoverInstalled({ s, domain, service, title, metaType, kind, st
 
 const discoverUpdates = (options) => discoverInstalled({ ...options, metaType: 0x81, kind: 'updates' });
 const discoverDlc = (options) => discoverInstalled({ ...options, metaType: 0x82, kind: 'dlc' });
+const discoverDataPatches = (options) => discoverInstalled({ ...options, metaType: 0x84, kind: 'DLC updates' });
+const discoverBase = (options) => discoverInstalled({ ...options, metaType: 0x80, kind: 'base content' });
 const discoverApplications = (options) =>
   discoverInstalled({ ...options, title: '0000000000000000', metaType: 0x80, kind: 'applications' });
 
@@ -159,7 +198,7 @@ const discoverSystemData = (options) =>
 
 
 
-async function resolveContent({ s, domain, service, title, storage, update, dlc, contentType = 1, allowDlc = false }) {
+async function resolveContent({ s, domain, service, title, storage, base, update, dlc, dataPatch, content, root, contentType = content?.contentType ?? 1, allowDlc = false }) {
   const handles = [];
   const own = (reply) => {
     const h = domain.oneHandle(reply);
@@ -169,7 +208,7 @@ async function resolveContent({ s, domain, service, title, storage, update, dlc,
 
   return withCleanup(async () => {
     const ncm = await service('ncm');
-    const selected = dlc || update;
+    const selected = dataPatch || dlc || update || base;
     const contentTitle = selected ? selected.contentTitle : title;
     // Search installed storages only when no storage was selected.
     const candidates = [...new Set(storage === undefined || storage === null ?
@@ -198,32 +237,46 @@ async function resolveContent({ s, domain, service, title, storage, update, dlc,
       throw resultError('GetLatestContentMetaKey for ' + contentTitle, failure?.result || 0xe05);
     storage = usedStorage;
 
+    if (selected) {
+      key = selected.metaKey ? Buffer.from(selected.metaKey) : Buffer.alloc(16);
+      idBytes(contentTitle).copy(key); key.writeUInt32LE(selected.version, 8);
+      key[12] = dataPatch ? 0x84 : dlc ? 0x82 : update ? 0x81 : 0x80;
+    }
     const directDlc = allowDlc && !dlc && !update && key[12] === 0x82;
     if (directDlc) contentType = 2;
-    const contentName = { 1: 'Program', 2: 'Data', 3: 'Control' }[contentType];
+    const contentName = ['Meta', 'Program', 'Data', 'Control', 'HtmlDocument', 'LegalInformation', 'DeltaFragment'][contentType];
     let applicationTitle = title;
 
-    if (dlc || update || directDlc) {
+    if (dlc || update || dataPatch || directDlc) {
       const owner = success(
         await s.ipc('Verify selected ' + (dlc || directDlc ? 'DLC' : 'update') + ' application', database, 22, key),
         'GetOwnerApplicationId',
       );
       if (directDlc) applicationTitle = owner.data.readBigUInt64LE().toString(16).padStart(16, '0');
+      else if (owner.data.readBigUInt64LE() !== BigInt('0x' + title)) throw new Error('Selected content belongs to another application');
     }
 
     const input = Buffer.alloc(24);
     input[0] = contentType;
     key.copy(input, 8);
 
-    const content = success(await s.ipc('GetContentIdByType', database, 3, input), 'GetContentIdByType');
-    const contentId = Buffer.from(content.data.subarray(0, 16));
-
-    const info = success(
-      await s.ipc('Get installed ' + contentName + ' content information', database, 24, input),
-      'Get installed ' + contentName + ' content information',
-    ).data;
-
-    const attributes = info[21] & 15;
+    let contentId;
+    let attributes;
+    let programIndex;
+    if (content) {
+      contentId = Buffer.from(content.contentId, 'hex');
+      attributes = content.attributes;
+      programIndex = content.programIndex;
+    } else {
+      const content = success(await s.ipc('GetContentIdByType', database, 3, input), 'GetContentIdByType');
+      contentId = Buffer.from(content.data.subarray(0, 16));
+      const info = success(
+        await s.ipc('Get installed ' + contentName + ' content information', database, 24, input),
+        'Get installed ' + contentName + ' content information',
+      ).data;
+      attributes = info[21] & 15;
+      programIndex = info[23];
+    }
     const store = own(
       success(await s.ipc('OpenContentStorage', ncm, 4, Buffer.from([storage])), 'OpenContentStorage'),
     );
@@ -252,7 +305,19 @@ async function resolveContent({ s, domain, service, title, storage, update, dlc,
       contentId: contentId.toString('hex'),
       version: key.readUInt32LE(8),
       metaType: key[12],
+      metaKey: key,
+      programIndex,
+      applicationTitle: title,
     };
+
+    if (root) {
+      const filename = Buffer.alloc(0x301);
+      filename.write(contentPath);
+      await s.write(s.base + 0x2000, filename);
+      const identity = success(await domain.send(s, 'Read selected NCA ProgramId', root,
+        pathRequest(618, Buffer.from([attributes]), s.base + 0x2000)), 'Read selected NCA ProgramId');
+      source.runtimeProgramId = identity.data.readBigUInt64LE().toString(16).padStart(16, '0');
+    }
 
     if (update) {
       Object.assign(source, {
@@ -267,6 +332,16 @@ async function resolveContent({ s, domain, service, title, storage, update, dlc,
         selection: 'dlc',
         applicationTitle,
         contentTitle,
+        dataPatchTitle: dlc?.dataPatchTitle,
+      });
+    }
+
+    if (dataPatch) {
+      Object.assign(source, {
+        selection: 'datapatch',
+        applicationTitle: title,
+        contentTitle,
+        dataTitle: dataPatch.dataTitle,
       });
     }
 
@@ -274,15 +349,14 @@ async function resolveContent({ s, domain, service, title, storage, update, dlc,
   }, () => closeHandles(s, handles));
 }
 
-const resolveProgramContent = (options) => resolveContent({ ...options, dlc: undefined, contentType: 1 });
+const resolveProgramContent = (options) => resolveContent({ ...options, contentType: 1 });
 const resolveControlContent = (options) =>
   resolveContent({ ...options, dlc: undefined, update: undefined, contentType: 3 });
 const resolveDlcContent = (options) => {
   return resolveContent({ ...options, contentType: 2 });
 };
-/// Resolve a SystemData archive's Data NCA path. No update/DLC chain, no owner check.
-const resolveSystemDataContent = (options) =>
-  resolveContent({ ...options, update: undefined, dlc: undefined, contentType: 2 });
+const resolveSystemDataContent = options => resolveContent({ ...options, update: undefined, dlc: undefined, contentType: 2 });
+const resolveDataPatchContent = options => resolveContent({ ...options, contentType: 2 });
 
 async function findOriginalContent(options) {
   for (const storage of [4, 5, 2]) {
@@ -469,9 +543,9 @@ async function discoverGames({ s, root, domain, service, filesystem, shouldStop 
 }
 
 module.exports = {
-  discoverGames, discoverUpdates, discoverDlc,
+  discoverGames, discoverBase, discoverUpdates, discoverDlc, discoverDataPatches,
   discoverSystemPrograms, discoverSystemData,
-  resolveContent, resolveProgramContent, resolveControlContent, resolveDlcContent, resolveSystemDataContent, findOriginalContent,
+  resolveContent, resolveProgramContent, resolveControlContent, resolveDlcContent, resolveDataPatchContent, resolveSystemDataContent, findOriginalContent,
   isInstalledUpdate, programMatchesApplication,
   USER_STORAGES, SYSTEM_STORAGES,
 };

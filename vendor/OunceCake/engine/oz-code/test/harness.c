@@ -198,7 +198,7 @@ int main(int argc, char** argv) {
         sdk_sockname, sdk_fcntl, sdk_errno, sdk_ipc, sdk_close_handle, sdk_thread_create, sdk_thread_join,
         sdk_setsockopt, sdk_connect,
     };
-    Source source = {cSourceHandle, 0, 0, 0, tree.next_offset};
+    Source source = {.handle=cSourceHandle, .kind=0, .size=tree.next_offset};
     u64 slot_bytes = 4096 + cDataBytes + cIpcBytes + cScratchBytes;
     ServerConfig* config = calloc(1, sizeof(ServerConfig));
     config->magic = CFG_MAGIC;

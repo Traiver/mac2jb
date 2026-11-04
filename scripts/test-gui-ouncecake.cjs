@@ -12,8 +12,8 @@ async function until(check){for(let n=0;n<200;n++){if(check())return;await wait(
 async function folder(t){const value=await fs.mkdtemp(path.join(await fs.realpath(os.tmpdir()),'ouncecake-fixture-'));t.after(()=>fs.rm(value,{recursive:true,force:true}));return value;}
 test('real self-test verifies the complete pin and image without a run or native connection',async()=>{
  const result=spawnSync(process.execPath,[path.join(root,'scripts/gui-ouncecake.cjs'),'--self-test'],{encoding:'utf8',timeout:10000});
- assert.equal(result.status,0,result.stderr);assert.equal(JSON.parse(result.stdout).files,33);
- assert.equal(JSON.parse(result.stdout).commit,'6dfd7750752f8b6c18f2c40b34fdadc628cd9a6e');
+ assert.equal(result.status,0,result.stderr);assert.equal(JSON.parse(result.stdout).files,35);
+ assert.equal(JSON.parse(result.stdout).commit,'40a35ff42676010f7d044495d27184d520ca02f6');
 });
 test('changed bundled code is refused before loading any console interface',async t=>{
  const target=await folder(t);await fs.mkdir(path.join(target,'vendor'));await fs.mkdir(path.join(target,'packaging'));
@@ -117,7 +117,7 @@ function nativeFixture(scenario={}){
   }
   async readOwned(address,size){const output=Buffer.alloc(size);if(address===base+0xa000){output.writeBigUInt64LE(BigInt(thread));return output;}
    if(address===base+0x4000){output.writeUInt32LE(stop?2:scenario.neverReady?0:1,16);return output;}throw Error('Unexpected owned read');}
-  async write(address,bytes){if(address===base+0x5000){assert.equal(bytes.length,17*8);assert.equal(Number(bytes.readBigUInt64LE(15*8)),sdk+0x4000+11*64);assert.equal(Number(bytes.readBigUInt64LE(16*8)),sdk+0x4000+12*64);}if(address===base+0x4000){assert.equal(bytes.readUInt32LE(28),12);const cache=Number(bytes.readBigUInt64LE(112));assert.ok(cache>=4096&&cache<=0x40000);assert.ok(Number(bytes.readBigUInt64LE(240))>=4096+cache+16384);}if(address===base+0x400c){trace.push('stop');stop=true;}else trace.push('write');}
+  async write(address,bytes){scenario.onWrite?.(address-base,bytes);if(address===base+0x5000){assert.equal(bytes.length,17*8);assert.equal(Number(bytes.readBigUInt64LE(15*8)),sdk+0x4000+11*64);assert.equal(Number(bytes.readBigUInt64LE(16*8)),sdk+0x4000+12*64);}if(address===base+0x4000){assert.equal(bytes.readUInt32LE(28),12);const cache=Number(bytes.readBigUInt64LE(112));assert.ok(cache>=4096&&cache<=0x40000);assert.ok(Number(bytes.readBigUInt64LE(240))>=4096+cache+16384);}if(address===base+0x400c){trace.push('stop');stop=true;}else trace.push('write');}
   async ipc(label,handle,command){if(command===0x524f0012){trace.push('map');if(scenario.mapFailure)throw Error('mapping uncertain');}
    if(command===0x524f0013)trace.push('unmap');const processReply=label==='HTTP/WebDAV verify application process';
    const data=Buffer.alloc(processReply&&scenario.shortProcessReply?32:104);data.writeBigUInt64LE(processReply&&scenario.zeroProcessId?0n:77n);
@@ -160,21 +160,22 @@ for(const scenario of ['shortProcessReply','zeroProcessId','badDestination','pro
  const f=nativeFixture({[scenario]:true});await assert.rejects(deployServer(f.options));
  assert.equal(f.trace.includes('map'),false);assert.equal(f.trace.includes('create'),false);
 });
-async function mapFixture(t,{cycle=false,small=false,badAddress=false}={}){
+async function mapFixture(t,{cycle=false,small=false,badAddress=false,programIndex=0}={}){
  const directory=await folder(t),engine=path.join(directory,'switch2');await fs.mkdir(path.join(engine,'ro'),{recursive:true});await fs.mkdir(path.join(engine,'tools'));
  await fs.writeFile(path.join(engine,'ro','map-session-layout.json'),'{}');const moduleFile=path.join(engine,'tools/fs-memory.cjs');await fs.writeFile(moduleFile,'module.exports={};');
  const rootAddress=2**32,nca=2**33,resolver=2**34,manager=2**35,head=manager+0x50,node=2**36,second=node+0x100;
+ let currentIndex=0;const registrations=[];
  const pointers=new Map([[rootAddress+0x10,nca],[nca+0x18,resolver],[resolver+0x58,manager]]),reads=[];
  const memory={async pointer(address){assert.ok(pointers.has(address));return pointers.get(address);},async read(address,size){
   reads.push(address);const data=Buffer.alloc(size);
   if(address===head){data.writeBigUInt64LE(BigInt(badAddress?3:node),8);return data;}
   assert.ok(address===node||address===second);data.writeBigUInt64LE(BigInt(cycle?node:small&&address===node?second:head),8);
-  data.writeBigUInt64LE(BigInt('0x'+title),0x10);data.writeBigUInt64LE(BigInt('0x'+title),0x18);return data;
+  data.writeBigUInt64LE(BigInt('0x'+title),0x10);data.writeBigUInt64LE(BigInt('0x'+title),0x18);data[0x20]=currentIndex;return data;
  }};
  require.cache[moduleFile]={id:moduleFile,filename:moduleFile,loaded:true,exports:{connect:async()=>memory}};t.after(()=>delete require.cache[moduleFile]);
- const attachment={run:directory,live:{session:'map-session'},proof:{rootAddress},s:{bytes:small?0x10000+64:0x80000}};
- let operations=0;const run=()=>withProgramIndexMap({attachment,title,runtimeProgramId:title,operation:async()=>{operations++;return 'valid existing mapping';}});
- return {run,reads,get operations(){return operations;}};
+ const attachment={run:directory,live:{session:'map-session'},proof:{rootAddress},s:{base:2**32,bytes:small?0x10000+64:0x80000,async write(address,bytes){currentIndex=bytes[16];},async ipc(label,handle,command){assert.equal(command,810);registrations.push(currentIndex);return {result:0};}}};
+ let operations=0;const run=()=>withProgramIndexMap({attachment,title,runtimeProgramId:title,programIndex,operation:async()=>{assert.equal(currentIndex,programIndex);operations++;return 'valid existing mapping';}});
+ return {run,reads,registrations,get currentIndex(){return currentIndex;},get operations(){return operations;}};
 }
 test('program-map traversal accepts valid existing ownership without modifying it',async t=>{
  const f=await mapFixture(t);assert.equal(await f.run(),'valid existing mapping');assert.equal(f.operations,1);assert.equal(f.reads.length,2);
@@ -202,4 +203,16 @@ test('null server allocation reports request size and allows retry only after ve
 test('invalid nonzero allocation never frees an unverified pointer or permits retry',async()=>{
  const f=nativeFixture({invalidAllocation:true});await assert.rejects(deployServer(f.options),error=>error.cleanupBlocked===true&&error.allocation.invalidNonzeroAddress===true);
  assert.equal(f.trace.includes('free'),false);assert.equal(f.trace.includes('map'),false);
+});
+
+test('native source table encodes deferred filesystem ProgramId and each proxy type',async()=>{
+ let table;const f=nativeFixture({onWrite(offset,bytes){if(offset===0x21000)table=Buffer.from(bytes);}});
+ f.options.sources=[{handle:7,kind:1,size:0},{handle:8,kind:2,attributes:5,proxyType:1,size:4096},{handle:9,kind:3,attributes:3,proxyType:4,programId:'0100000000001234'}];
+ const server=await deployServer(f.options);assert.equal(table.length,48);
+ assert.equal(table.readUInt32LE(4),1);assert.equal(table[21],5);assert.equal(table[22],1);assert.equal(table.readBigUInt64LE(24),4096n);
+ assert.equal(table[36],3);assert.equal(table[37],3);assert.equal(table[38],4);assert.equal(table.readBigUInt64LE(40),0x0100000000001234n);await server.close();
+});
+
+test('secondary program mapping replaces an existing index and restores it afterwards',async t=>{
+ const f=await mapFixture(t,{programIndex:3});await f.run();assert.deepEqual(f.registrations,[3,0]);assert.equal(f.currentIndex,0);assert.equal(f.operations,1);
 });
