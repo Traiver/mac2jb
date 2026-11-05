@@ -381,14 +381,18 @@ a private Mac backup and verifies its SHA-256 checksums. The download is enabled
 only after copying and native-handle cleanup have completed. No save files are
 written or committed on the console; restore/import is not part of this feature.
 
-Save downloads use the **Mac address and port displayed on the Switch**, including
-the random URL path. In WinSCP choose WebDAV without TLS, copy that path into the
-remote directory and download the complete title folder, including `files/` and
+Save downloads use the **Mac address displayed on the Switch**, fixed port **8081**
+and the root path **/**, for example `http://192.168.1.10:8081/`. In WinSCP choose
+WebDAV without TLS, set port 8081 and remote directory `/`, then download the
+complete title folder, including `files/` and
 `manifest.json`. The manifest records the title, raw account UID, archive identity,
 file sizes and checksums; save files named `manifest.json` remain inside `files/`.
 Press **B** to stop sharing and return to the archive list. A completed local copy
 remains in the current session's `runs/mintbrew-*/save-backups/` directory until the
 session is deleted. Failed or cancelled copies are removed and never shared.
+If port 8081 is occupied, OunceCake reports the conflict instead of silently
+changing ports. The Mac's IP address is assigned by the network; reserve its
+address in your router if you want it to remain fixed across network changes.
 
 Title rows use the full list width; long names can scale down to fit while retaining their TitleID. The firmware entry omits its internal sentinel ID.
 

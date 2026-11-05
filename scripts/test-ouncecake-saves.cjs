@@ -92,7 +92,7 @@ function request(url,{method='GET',headers={},suffix=''}={}){return new Promise(
  const u=new URL(url),req=http.request({hostname:u.hostname,port:u.port,path:u.pathname+suffix,method,headers},res=>{const chunks=[];res.on('data',b=>chunks.push(b));res.on('end',()=>resolve({status:res.statusCode,headers:res.headers,body:Buffer.concat(chunks).toString()}));});req.on('error',reject);req.end();});}
 test('read-only HTTP/WebDAV serves the verified snapshot, ranges and Unicode; rejects writes and traversal',async t=>{
  const folder=await directory(t),f=attached(),backup=await saves.snapshot({...f,archive,directory:folder});
- const name='Game [id]',download=await server.start({...backup,name,address:'127.0.0.1'});t.after(()=>download.close());
+ const name='Game [id]',download=await server.start({...backup,name,address:'127.0.0.1',port:0});t.after(()=>download.close());
  assert.equal((await request(download.url)).status,200);
  const uri=encodeURIComponent(name)+'/files/'+encodeURIComponent('データ')+'/slot.bin';
  const data=await request(download.url,{suffix:uri});assert.equal(data.body,'abc');
@@ -103,11 +103,24 @@ test('read-only HTTP/WebDAV serves the verified snapshot, ranges and Unicode; re
  assert.equal((await request(download.url,{method:'PUT',suffix:uri})).status,405);
  assert.equal((await request(download.url,{suffix:'%2e%2e/manifest.json'})).status,400);
  assert.equal((await request(download.url,{suffix:'%2Fetc/passwd'})).status,400);
- assert.equal((await request(download.url.replace(/\/[0-9a-f]+\/$/,'/'))).status,404);
+ assert.equal(new URL(download.url).pathname,'/');
  assert.equal((await request(download.url,{suffix:encodeURIComponent(name)+'/files/manifest.json'})).body,'abc');
  assert.equal(JSON.parse((await request(download.url,{suffix:encodeURIComponent(name)+'/manifest.json'})).body).files,3);
  const proof=await download.close();assert.deepEqual(proof,{localStopped:true,connectionsClosed:true});
  assert.equal((await fs.stat(backup.folder)).isDirectory(),true);
+});
+test('consecutive exports reuse port 8081 and the root URL; an occupied port is reported',async t=>{
+ const folder=await directory(t),f=attached(),backup=await saves.snapshot({...f,archive,directory:folder});
+ const options={...backup,name:'Game [id]',address:'127.0.0.1'};
+ const first=await server.start(options);t.after(()=>first.close());
+ assert.equal(first.url,'http://127.0.0.1:8081/');
+ await assert.rejects(server.start(options),e=>e.code==='SAVE_PORT_IN_USE'&&/8081/.test(e.message));
+ assert.equal((await request(first.url)).status,200);
+ await first.close();
+ const second=await server.start(options);t.after(()=>second.close());
+ assert.equal(second.url,first.url);
+ assert.equal((await request(second.url,{method:'PROPFIND',headers:{Depth:'1'}})).status,207);
+ await second.close();
 });
 test('download startup refuses corrupted or missing snapshot files',async t=>{
  const folder=await directory(t),f=attached(),backup=await saves.snapshot({...f,archive,directory:folder});

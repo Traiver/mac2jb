@@ -1,7 +1,8 @@
 'use strict';
 // Serve a completed local backup. Network requests never touch the console/RPC.
 const http=require('node:http'),fs=require('node:fs/promises'),path=require('node:path');
-const os=require('node:os'),crypto=require('node:crypto'),net=require('node:net');
+const os=require('node:os'),net=require('node:net');
+const DEFAULT_PORT=8081;
 const {safeName,hashFile}=require('./saves.cjs');
 const check=(v,m)=>{if(!v)throw Object.assign(Error(m),{code:'SAVE_EXPORT_FAILED'});};
 const escape=value=>String(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&apos;'}[c]));
@@ -15,11 +16,11 @@ function hostAddress(switchAddress,interfaces=os.networkInterfaces()){
  check(candidates.length>0,'No Mac IPv4 address on the Switch network');
  return candidates[0].address;
 }
-async function start({folder,manifest,name,address,port=0}){
+async function start({folder,manifest,name,address,port=DEFAULT_PORT}){
  check(net.isIPv4(address)&&!address.startsWith('0.')&&safeName(name),'Invalid save download endpoint');
  check(manifest?.format==='mac2jb.save-backup'&&manifest.partial===false&&
   Array.isArray(manifest.entries)&&Array.isArray(manifest.directories),'Incomplete save backup');
- const root=await fs.realpath(folder),token=crypto.randomBytes(8).toString('hex'),base='/'+token+'/';
+ const root=await fs.realpath(folder),base='/';
  const nodes=new Map([['',{directory:true}], [name,{directory:true}], [name+'/files',{directory:true}]]);
  const add=(key,node)=>{check(!nodes.has(key),'Repeated save download path');nodes.set(key,node);};
  const validate=p=>{check(typeof p==='string'&&p.split('/').every(safeName),'Invalid backup path');};
@@ -96,7 +97,12 @@ async function start({folder,manifest,name,address,port=0}){
  });
  server.on('connection',socket=>{sockets.add(socket);socket.on('close',()=>sockets.delete(socket));});
  server.requestTimeout=30000;server.headersTimeout=15000;
- await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(port,address,()=>{server.off('error',reject);resolve();});});
+ try{
+  await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(port,address,()=>{server.off('error',reject);resolve();});});
+ }catch(error){
+  if(error.code==='EADDRINUSE')throw Object.assign(Error('Save download port '+port+' is already in use. Close the other server and retry.'),{code:'SAVE_PORT_IN_USE',cause:error});
+  throw error;
+ }
  return {kind:'local-save',url:'http://'+address+':'+server.address().port+base,
   async close(){if(!closing){closing=(async()=>{
    const stopped=new Promise((resolve,reject)=>server.close(error=>error?reject(error):resolve()));
@@ -104,4 +110,4 @@ async function start({folder,manifest,name,address,port=0}){
    await Promise.all([stopped,...connections]);await Promise.all([...active]);
   })();}await closing;return {localStopped:!server.listening,connectionsClosed:sockets.size===0&&active.size===0};}};
 }
-module.exports={start,hostAddress};
+module.exports={start,hostAddress,DEFAULT_PORT};
