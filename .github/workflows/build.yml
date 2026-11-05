@@ -89,13 +89,18 @@ jobs:
       - name: Verify experimental media protocol and Stremio addon client
         run: node --test stremio/*.test.cjs stremio/test-*.cjs
 
+      - name: Verify CivSwitch Control Center without a console
+        run: |
+          python3 integrations/civswitch-control-center/verify-source.py
+          PYTHONDONTWRITEBYTECODE=1 python3 integrations/civswitch-control-center/test_mac_host.py
+
       - name: Verify OunceCake snapshot and lifecycle without a console
         run: |
           export PATH="$PWD/.build-gui/homebrew/python/bin:$PATH"
           export MAC2JB_HBLAUNCHER_FONT="$PWD/.build-gui/homebrew/fonts/DejaVuSans.ttf"
           export SPIRV_VAL="$PWD/.build-gui/homebrew/bin/spirv-val"
           node scripts/gui-ouncecake.cjs --self-test
-          node --test scripts/test-gui-ouncecake.cjs scripts/test-mintbrew-ouncecake.cjs scripts/test-ouncecake-exports.cjs scripts/test-ouncecake-recovery.cjs
+          node --test scripts/test-gui-ouncecake.cjs scripts/test-mintbrew-ouncecake.cjs scripts/test-ouncecake-exports.cjs scripts/test-ouncecake-recovery.cjs scripts/test-ouncecake-romfs.cjs scripts/test-ouncecake-codefs.cjs
           bash scripts/test-ouncecake-navigation.sh
           bash scripts/test-ouncecake-session.sh
 

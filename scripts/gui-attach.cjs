@@ -9,6 +9,7 @@ const {lines} = require('./gui-host.cjs');
 const applications = Object.freeze({
   'launch-izlauncher': ['izlauncher', 'scripts/gui-izlauncher.cjs'],
   'launch-mintbrew': ['mintbrew', 'scripts/gui-mintbrew.cjs'],
+  'launch-native-hblauncher': ['native-hblauncher', 'scripts/gui-native-hblauncher.cjs'],
   'launch-custom-homebrew': ['custom-homebrew', 'scripts/gui-custom-homebrew.cjs'],
   'launch-ouncecake': ['ouncecake', 'scripts/gui-ouncecake.cjs']
 });
@@ -39,6 +40,11 @@ function launchConfiguration(command) {
     return {application, script, quality: command.quality ?? '720p',
       config: {addonUrls: command.addonUrls || [], libraryItems: command.libraryItems || [],
         ...(application === 'mintbrew' ? {quality:command.quality ?? '720p'} : {})}};
+  }
+  if (application === 'native-hblauncher') {
+    const sdRomFolder = require('../integrations/mintbrew-native/sd-roms.cjs')
+      .validSDRomFolder(command.sdRomFolder);
+    return {application, script, config: {sdRomFolder}};
   }
   if (application === 'custom-homebrew') {
     if (typeof command.customHomebrewPath !== 'string' || !path.isAbsolute(command.customHomebrewPath) ||
@@ -101,6 +107,7 @@ async function main(options = {}) {
   const listIZlauncherModules = options.listIZlauncherModules || (selectedRoot =>
     require('./izlauncher-modules.cjs').catalog(selectedRoot));
   const spawn = options.spawn || spawnProcess, signal = options.signal || signalOwned;
+  const releaseMarkers = options.releaseMarkers || require('./homebrew-reentry.cjs').releaseMarkers;
   const makeDumpDirectory = options.createDumpDirectory || createDumpDirectory;
   const graceMs = options.graceMs ?? 300000, pollMs = options.pollMs ?? 2000;
   const preparationAbort = new AbortController();
@@ -210,7 +217,7 @@ async function main(options = {}) {
     ({application, config} = selection);
     const ouncecakeMode = application === 'ouncecake' ||
       application === 'custom-homebrew' && config.customHomebrewKind === 'rpc-app' && config.adapter === 'ouncecake';
-    let retrySafeFailure;
+    let retrySafeFailure, cleanStopProof;
     claiming = true;
     try {
       try {await verify();} catch (error) {lost(error); return;}
@@ -219,13 +226,20 @@ async function main(options = {}) {
       // do not poll while this operation installs its ownership marker.
       await context.claimApplication(application);
     } finally {claiming = false;}
-    if (finishing) return;
+    if (finishing) {
+      try {await context.releaseApplication();}
+      catch (error) {fail('Could not release the unused application claim: ' + error.message, true);}
+      return;
+    }
   const configurable = application === 'mintbrew' || application === 'ouncecake' || application === 'izlauncher' ||
       application === 'custom-homebrew' && config.customHomebrewKind === 'rpc-app';
     const moduleIds = application === 'izlauncher' && Array.isArray(config.moduleIds) && config.moduleIds.length
       ? require('./izlauncher-modules.cjs').withDefaults(config.moduleIds) : undefined;
     child = spawn(process.execPath, [path.join(root, selection.script), context.directory,
       ...(moduleIds ? ['--modules',JSON.stringify(moduleIds)] : []),
+      ...(application === 'native-hblauncher' ? ['--sd-rom-folder', config.sdRomFolder] : []),
+      ...(application === 'native-hblauncher' && config.nativeAppFolder ?
+        ['--app-folder', config.nativeAppFolder] : []),
       ...(application === 'custom-homebrew' ? [
         config.customHomebrewKind==='launcher'?'--launcher-folder':
           config.customHomebrewKind==='rpc-app'?'--rpc-folder':'--app-folder', config.customHomebrewPath] : [])], {
@@ -279,7 +293,10 @@ async function main(options = {}) {
       if (event.cleanupBlocked === true) fail('The selected app could not confirm native shutdown.', true);
       const wasRunning = running;
       if (event.type === 'running') running = true;
-      if (event.type === 'stopped' || event.type === 'failed') {running = false; settled = true;}
+      if (event.type === 'stopped' || event.type === 'failed') {
+        running = false; settled = true;
+        if (event.type === 'stopped') cleanStopProof = event;
+      }
       if (event.type === 'failed') {
         if (event.retrySafe === true && !wasRunning && !cleanupBlocked && !finishing && !failure)
           retrySafeFailure = event;
@@ -287,7 +304,7 @@ async function main(options = {}) {
       }
       if (retrySafeFailure) return;
       safeEmit('homebrew-' + event.type, {path: context.directory, message: event.message,
-        ...(['izlauncher','mintbrew'].includes(application) ? {cleanupBlocked} : {}),
+        ...(['izlauncher','mintbrew','native-hblauncher'].includes(application) ? {cleanupBlocked} : {}),
         ...(ouncecakeMode ? {host: event.host, port: event.port, httpURL: event.httpURL, cleanupBlocked} : {})});
     };
     lines(owned.stdout, observe, 1024 * 1024); lines(owned.stderr, observe);
@@ -315,7 +332,25 @@ async function main(options = {}) {
       } catch (error) {fail('Could not restore the held session after preparation failed: ' + error.message, true);}
       finally {claiming = false;}
     }
-    if (outcome.error || outcome.code !== 0 || outcome.signal || !settled) {
+    if (!outcome.error && outcome.code === 0 && !outcome.signal && settled &&
+        !cleanupBlocked && !sourceLost && !finishing && !closed && !failure) {
+      claiming = true;
+      try {
+        await verificationTask?.catch(() => {});
+        if (sourceLost || finishing) throw Error('The held RPC session changed during shutdown.');
+        const status = await verify();
+        if (status?.ready !== true) throw Error('The held RPC session is no longer ready.');
+        releaseMarkers(context.directory, cleanStopProof, ouncecakeMode);
+        await context.releaseApplication();
+        launchAttempted = false; application = undefined; config = undefined; settled = false;
+        stopRequested = false; gameTitles = new Set();
+        safeEmit('homebrew-ready', {path: context.directory,
+          message: 'Homebrew stopped. RPC is ready for another app.'});
+        return;
+      } catch (error) {fail('Could not prepare the held session for another app: ' + error.message, true);}
+      finally {claiming = false;}
+    }
+    if (failure || outcome.error || outcome.code !== 0 || outcome.signal || !settled) {
       fail('The selected app failed or did not confirm shutdown. This launch was not retried.', !settled || Boolean(outcome.signal));
       safeEmit('homebrew-failed', {path: context.directory, cleanupBlocked, message: failure});
     }
@@ -326,7 +361,7 @@ async function main(options = {}) {
       stopHomebrew();
       await homebrewTask;
       if (finishing || closed) return;
-      if (child || !settled || cleanupBlocked || failure)
+      if (child || launchAttempted && !settled || cleanupBlocked || failure)
         throw Error('The current app did not confirm safe shutdown. The system-code dump was not started.');
     }
     if (finishing || closed) return;
@@ -389,12 +424,22 @@ async function main(options = {}) {
         if (finishing) return;
         ready = true;
         safeEmit('rpc-attached', {path: context.directory, sourceSession: context.sourceSession,
+          profileId: context.profileId,
           message: context.description || 'Attached to the existing held RPC session.'});
         if (pollMs > 0) {monitor = setInterval(monitorSource, pollMs); monitor.unref?.();}
       })().catch(error => {if (!finishing) {fail('Could not attach: ' + error.message); void finish('Attachment verification failed.');}});
       return;
     }
     if (!ready) {safeEmit('action-rejected', {message: 'Attach to a verified open RPC session first.'}); return;}
+    if (command.action === 'stop-homebrew') {
+      if (!child || settled || stopRequested || cleanupBlocked || sourceLost || failure) {
+        safeEmit('action-rejected', {action:command.action,
+          message:'Wait for a running homebrew app before stopping it.'}); return;
+      }
+      safeEmit('homebrew-stopping', {path:context.directory, message:'Stopping the current homebrew app.'});
+      stopHomebrew();
+      return;
+    }
     if (command.action === 'dump-system-code') {
       if (dumpTask || dumpBusy || statusBusy || claiming || preflightBusy || cleanupBlocked || failure ||
           child && (!running || settled)) {
@@ -431,6 +476,11 @@ async function main(options = {}) {
       if (!availableHomebrew(root, applications[command.action][0])) {
         safeEmit('action-rejected', {action:command.action,message:'This homebrew option is unavailable in this build.'}); return;
       }
+      if (command.action === 'launch-native-hblauncher' &&
+          !['kurumuz', 'cellenseres'].includes(context.profileId)) {
+        safeEmit('action-rejected', {action:command.action,
+          message:'Native HBLauncher requires a held Kurumuz or Cellenseres RPC session.'}); return;
+      }
       let selection;
       try {selection = launchConfiguration(command);} catch (error) {safeEmit('action-rejected', {message: error.message}); return;}
       if (launchAttempted || statusBusy || preflightBusy || dumpBusy) {safeEmit('action-rejected', {message: 'Only one homebrew launch attempt is allowed for this held session.'}); return;}
@@ -442,18 +492,34 @@ async function main(options = {}) {
             prepared = await preflightCustomApp(root,selection.config.customHomebrewPath);
             if (finishing || closed) return;
             if (prepared.kind === 'rpc-app' && prepared.adapter === 'ouncecake' && !net.isIPv4(selection.config.consoleAddress))
-              throw Error('Enter the Switch’s IPv4 address for OunceCake-compatible FTP.');
+              throw Error('Enter the Switch’s IPv4 address for OunceCake-compatible WebDAV.');
+            const target = prepared.kind === 'iz-module' ? 'izlauncher' :
+              prepared.kind === 'native-app' ? 'native-hblauncher' : 'custom-homebrew';
+            if (!availableHomebrew(root,target))
+              throw Error('The selected homebrew runtime is unavailable in this build.');
+            if (target === 'native-hblauncher' &&
+                !['kurumuz', 'cellenseres'].includes(context.profileId))
+              throw Error('Native HBLauncher apps require a held Kurumuz or Cellenseres RPC session.');
+            const staged = prepared;
+            const selected = target === 'izlauncher' ? {
+              application:target,script:applications['launch-izlauncher'][1],
+              config:{moduleIds:[staged.moduleId]}} : target === 'native-hblauncher' ? {
+              application:target,script:applications['launch-native-hblauncher'][1],
+              config:{nativeAppFolder:staged.packageFolder,
+                sdRomFolder:require('../integrations/mintbrew-native/sd-roms.cjs').DEFAULT_SD_ROM_FOLDER}} :
+              {...selection,config:{
+                customHomebrewPath:staged.kind==='launcher'?staged.launcherFolder:
+                  staged.kind==='rpc-app'?staged.packageFolder:staged.appFolder,
+                customHomebrewKind:staged.kind||'gpu-app',adapter:staged.adapter,
+                ...(staged.adapter==='ouncecake'?{consoleAddress:selection.config.consoleAddress,port:8080}:{})}};
             launchAttempted = true;
             safeEmit('homebrew-accepted', {action:'launch-custom-homebrew',
-              customHomebrewKind:prepared.kind||'gpu-app',adapter:prepared.adapter,
-              message:'Validated '+prepared.app.name+'. Opening the selected app.'});
-            const staged = prepared;
-            prepared = null;
-            const selected = {...selection,config:{
-              customHomebrewPath:staged.kind==='launcher'?staged.launcherFolder:
-                staged.kind==='rpc-app'?staged.packageFolder:staged.appFolder,
               customHomebrewKind:staged.kind||'gpu-app',adapter:staged.adapter,
-              ...(staged.adapter==='ouncecake'?{consoleAddress:selection.config.consoleAddress,port:8080}:{})}};
+              message:target==='native-hblauncher' ?
+                'Validated '+staged.app.name+'. Select it in HBLauncher on your Switch.' :
+                target==='izlauncher' ? 'Validated '+staged.app.name+'. Opening IZlauncher with this module.' :
+                  'Validated '+staged.app.name+'. Opening the selected app.'});
+            prepared = null;
             homebrewTask = homebrew(selected).catch(error => {
               if (finishing && !child) return;
               fail('The selected app could not start: ' + error.message, Boolean(child));

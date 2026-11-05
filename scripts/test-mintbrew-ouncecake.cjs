@@ -183,18 +183,22 @@ test('bad game content releases selected handles and returns to the catalog',asy
  let attempts=0;
  const {instance,events}=fixture(t,{prepareGame:async({attachment})=>{
   const handle=100+(++attempts);attachment.s.handles.add(handle);
-  if(attempts===1)throw Error('Invalid RomFS: header size');
+  if(attempts===1)throw Object.assign(Error('Invalid RomFS: header size'),{code:'ROMFS_HEADER_INVALID',romfsDiagnostic:{reason:'header-size',view:'/base/romfs',actualHeaderSize:'0x0'}});
   return {index:Buffer.from('index'),sources:[{handle,kind:0,size:1}]};
  }});
  await instance.start();await waitFor(()=>instance.report.status,'catalog');
  await instance.select(0);await waitFor(()=>instance.report.error,'Invalid RomFS: header size');
  assert.equal(instance.report.status,'catalog');
+ assert.equal(instance.report.romfsDiagnostic.reason,'header-size');
+ assert.equal(instance.report.romfsDiagnostic.view,'/base/romfs');
+ assert.ok(instance.report.romfsDiagnostic.titleId);
  assert.equal(events.detach,0);
  assert.deepEqual(events.closed,[101]);
  await waitFor(()=>events.order.includes('title-ftp-resumed'),true);
  assert.equal(events.fatal.length,0);
  await instance.select(0);await waitFor(()=>instance.report.status,'running');
  assert.equal(instance.report.error,undefined);
+ assert.equal(instance.report.romfsDiagnostic,undefined);
  await instance.close();
  assert.equal(events.attach,1);
  assert.equal(events.detach,1);
@@ -347,4 +351,60 @@ test('Japanese selected title stays in its Unicode image tile while operational 
  const header=events.writes.findLast(row=>row.bytes.length===protocol.HEADER_BYTES).bytes;assert.equal(header.readUInt32LE(28),1);
  await instance.back();await waitFor(()=>instance.report.status,'catalog');assert.equal(events.writes.findLast(row=>row.bytes.length===protocol.HEADER_BYTES).bytes.readUInt32LE(28),0);
  await instance.close();
+});
+
+
+test('zero base RomFS header offers scoped exports only after cleanup and permits a separate update',async t=>{
+ const parts=[];const {instance,events}=fixture(t,{exportsEngine:{
+  async discoverExports(){return [{title:'0100000000000001',name:'Sparse base',storages:[4]}];},
+  async prepareExport({attachment,part}){
+   parts.push(part);attachment.s.handles.add(101);
+   if(!part)throw Object.assign(Error('Invalid RomFS: header size'),{code:'ROMFS_HEADER_INVALID',romfsDiagnostic:{zeroHeader:true,contentType:1,view:'/base/romfs',actualHeaderSize:'0x0'}});
+   return {index:Buffer.alloc(64),sources:[{handle:101,kind:0,size:1}]};
+  }
+ }});
+ await instance.start();await waitFor(()=>instance.report.status,'catalog');
+ await instance.select(0);await waitFor(()=>instance.report.catalogView,'parts');
+ assert.equal(instance.report.splitReason,'ZERO_BASE_ROMFS_HEADER');
+ assert.equal(instance.report.romfsDiagnostic.zeroHeader,true);
+ assert.deepEqual(events.closed,[101]);assert.equal(events.fatal.length,0);
+ await instance.select(2);await waitFor(()=>instance.report.status,'running');
+ assert.deepEqual(parts,[undefined,'update']);assert.equal(instance.report.romfsDiagnostic,undefined);
+ await instance.close();
+});
+
+test('partial Base export is visibly marked and keeps unavailable-section evidence',async t=>{
+ const info={kind:'game',partial:true,sections:[{path:'/base/exefs',status:'available',entries:1},{path:'/base/romfs',status:'invalid',message:'Invalid RomFS: header size'}]};
+ const {instance,events}=fixture(t,{exportsEngine:{
+  async discoverExports(){return [{title:'0100000000000001',name:'Partial Base',storages:[4]}];},
+  async prepareExport({attachment}){attachment.s.handles.add(101);return {index:Buffer.alloc(64),sources:[{handle:101,kind:1}],exportInfo:info};}
+ }});
+ await instance.start();await waitFor(()=>instance.report.status,'catalog');
+ await instance.select(0);await waitFor(()=>instance.report.status,'running');
+ assert.deepEqual(instance.report.exportInfo,info);assert.equal(events.deployed,1);
+ const header=events.writes.filter(x=>x.bytes.length===protocol.HEADER_BYTES).at(-1).bytes;
+ const message=header.subarray(128,128+header.readUInt32LE(16)).toString();
+ assert.ok(message.startsWith('PARTIAL HTTP://'));assert.equal(events.fatal.length,0);
+ await instance.close();
+});
+
+
+test('compacted Base metadata offers export scopes safely with an explanatory message',async t=>{
+ const error=Object.assign(Error('Compacted Base. Choose Update for installed files; X for raw NCAs.'),{code:'COMPACTED_BASE',exportInfo:{kind:'game',baseCompacted:true,updateAvailable:true}});
+ const {instance,events}=fixture(t,{prepareGame:async()=>{throw error;}});
+ await instance.start();await waitFor(()=>instance.report.status,'catalog');
+ await instance.select(0);await waitFor(()=>instance.report.catalogView,'parts');
+ assert.equal(instance.report.splitReason,'COMPACTED_BASE');assert.equal(instance.report.exportInfo.baseCompacted,true);
+ assert.equal(events.deployed,0);assert.equal(events.fatal.length,0);await instance.close();
+});
+test('combined installed view of compacted Base and Update is visibly identified',async t=>{
+ const info={kind:'game',baseCompacted:true,merged:true,partial:false,sections:[]};
+ const {instance,events}=fixture(t,{exportsEngine:{
+  async discoverExports(){return [{title:'0100000000000001',name:'Compacted game',storages:[4]}];},
+  async prepareExport({attachment}){attachment.s.handles.add(101);return {index:Buffer.alloc(64),sources:[{handle:101,kind:0,size:1}],exportInfo:info};}
+ }});
+ await instance.start();await waitFor(()=>instance.report.status,'catalog');await instance.select(0);await waitFor(()=>instance.report.status,'running');
+ const header=events.writes.filter(x=>x.bytes.length===protocol.HEADER_BYTES).at(-1).bytes;
+ assert.ok(header.subarray(128,128+header.readUInt32LE(16)).toString().startsWith('COMBINED HTTP://'));
+ assert.equal(instance.report.exportInfo.merged,true);await instance.close();
 });

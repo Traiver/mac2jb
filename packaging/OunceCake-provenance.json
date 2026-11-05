@@ -90,6 +90,26 @@
       "date": "2026-11-04",
       "file": "engine/exports.cjs",
       "description": "Omit the internal firmware sentinel from the public firmware folder label."
+    },
+    {
+      "date": "2026-11-05",
+      "file": "engine/mounts.cjs",
+      "description": "Reject short metadata reads explicitly and report bounded RomFS header diagnostics with the selected NCA and export view; preserve strict validation and owned-handle cleanup."
+    },
+    {
+      "date": "2026-11-05",
+      "file": "engine/mounts.cjs",
+      "description": "Permit explicitly selected partial Base exports after invalid RomFS validation only once storage close is verified; attempt ExeFS independently, distinguish absent sections, and retain section diagnostics in export metadata."
+    },
+    {
+      "date": "2026-11-05",
+      "file": "engine/program.cjs, engine/mounts.cjs, engine/protocol.cjs",
+      "description": "For a Base-only CodeFS partition signature failure, retry once with the selected NCA registered and read back through the existing location resolver; verify restoration/removal, retain both failure results, and name the partition signature error. Other mount paths keep their prior behavior."
+    },
+    {
+      "date": "2026-11-05",
+      "file": "engine/content.cjs, engine/mounts.cjs",
+      "description": "Retain NCM installation type, Compacted metadata flag and 40-bit content sizes. Offer scoped exports before attempting a compacted Base alone; retain explicit partial Base attempts, avoid the failed Base resolver retry for compacted sources, and identify the composed installed Update view."
     }
   ],
   "httpBase": {

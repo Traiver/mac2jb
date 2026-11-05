@@ -4,11 +4,11 @@ const {discoverBase,discoverDataPatches,discoverSystemPrograms}=require('../vend
 const {buildIndex}=require('../vendor/OunceCake/engine/mounts.cjs');
 const {prepareTitleNcas}=require('../vendor/OunceCake/engine/exports.cjs');
 const title='0100000000001000';
-function metadataFixture({type=0x80,headerSize=16,truncate=false}={}){
- const key=Buffer.alloc(16);key.writeBigUInt64LE(BigInt('0x'+title));key[12]=type;
- const meta=Buffer.alloc(8+headerSize+48);meta.writeUInt16LE(headerSize);meta.writeUInt16LE(2,2);
+function metadataFixture({type=0x80,headerSize=16,truncate=false,metadataAttributes=0,installType=0,contentBytes=0}={}){
+ const key=Buffer.alloc(16);key.writeBigUInt64LE(BigInt('0x'+title));key[12]=type;key[13]=installType;
+ const meta=Buffer.alloc(8+headerSize+48);meta.writeUInt16LE(headerSize);meta.writeUInt16LE(2,2);meta[6]=metadataAttributes;
  if(headerSize>=16){meta.writeBigUInt64LE(0x0100000000002000n,8);meta.writeBigUInt64LE(BigInt('0x'+title),16);}
- for(let i=0;i<2;i++){const at=8+headerSize+i*24;meta.fill(i+1,at,at+16);meta[at+22]=i?4:1;meta[at+23]=i?3:0;}
+ for(let i=0;i<2;i++){const at=8+headerSize+i*24;meta.fill(i+1,at,at+16);meta.writeUIntLE(contentBytes,at+16,5);meta[at+21]=1;meta[at+22]=i?4:1;meta[at+23]=i?3:0;}
  let output;const closed=[];
  const a={s:{base:2**32,bytes:0x80000,async close(h){closed.push(h);this.handles.delete(h);},handles:new Set([5]),
   async readOwned(){return output;},async ipc(label,h,command,input){
@@ -73,4 +73,12 @@ test('split categories retain every section exactly once',()=>{
  for(const category of ['base','update','dlc'])for(const [type,sections] of [[0,['meta']],[1,['romfs','exefs','logo']],[2,['romfs']],[3,['control']],[4,['manual']],[5,['legal']]])for(const section of sections){
   const matches=all.filter(part=>includeSection(part,category,type,section));assert.equal(matches.length,1);assert.equal(matches[0],type===1&&section!=='logo'||type===2?category:'additional');assert.equal(includeSection(undefined,category,type,section),true);
  }
+});
+
+
+test('base discovery retains compaction, installation type and 40-bit content sizes independently',async()=>{
+ const {a}=metadataFixture({metadataAttributes:4,installType:0,contentBytes:2871181552});
+ const [base]=await discoverBase({...a,title,storages:[4]});
+ assert.equal(base.compacted,true);assert.equal(base.metadataAttributes,4);assert.equal(base.installType,0);
+ assert.equal(base.contents[0].expectedBytes,2871181552);assert.equal(base.contents[0].attributes,1);
 });

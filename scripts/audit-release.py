@@ -23,13 +23,16 @@ required = {
     'mac2jb/vendor/ns2jb/run.cjs',
     'mac2jb/vendor/ns2jb-hosts/pepsipu/run.cjs',
     'mac2jb/vendor/ns2jb-hosts/kurumuz/run.cjs',
+    'mac2jb/vendor/ns2jb-hosts/cellenseres/run.cjs',
     'mac2jb/vendor/IZ2S-Platform/engines/izmysh/server/host.cjs',
     'mac2jb/gui/HostProfile.swift',
     'mac2jb/scripts/host-profiles.cjs',
     'mac2jb/scripts/prepare-host-profiles.cjs',
     'mac2jb/packaging/host-profiles.json',
     'mac2jb/scripts/gui-attach.cjs',
+    'mac2jb/scripts/gui-discover-rpc.cjs',
     'mac2jb/scripts/rpc-attachment.cjs',
+    'mac2jb/scripts/homebrew-reentry.cjs',
     'mac2jb/vendor/HBLauncher/homebrew-launcher/launcher.cjs',
     'mac2jb/vendor/GPUBrewLauncher/homebrew-launcher/launcher.cjs',
     'mac2jb/vendor/GPUBrewLauncher/CREDITS',
@@ -44,6 +47,9 @@ required = {
     'mac2jb/scripts/gui-hblauncher.cjs',
     'mac2jb/scripts/gui-mintbrew.cjs',
     'mac2jb/scripts/prepare-mintbrew.cjs',
+    'mac2jb/integrations/mintbrew-iz-exchange/prepare.cjs',
+    'mac2jb/integrations/mintbrew-iz-exchange/service.cjs',
+    'mac2jb/integrations/mintbrew-native/host.cjs',
     'mac2jb/integrations/mintbrew-stremio/adapter.cjs',
     'mac2jb/scripts/gui-izlauncher.cjs',
     'mac2jb/scripts/izlauncher-modules.cjs',
@@ -100,12 +106,69 @@ required = {
     'mac2jb/packaging/GPUBrewLauncher-provenance.json',
     'mac2jb/packaging/GPUBrewLauncher-SHA256SUMS',
     'mac2jb/scripts/gui-homebrew.cjs',
+    'mac2jb/scripts/gui-native-hblauncher.cjs',
+    'mac2jb/scripts/gui-savekit-tools.cjs',
+    'mac2jb/scripts/gui-dnswitch.cjs',
+    'mac2jb/scripts/gui-webkit-research.cjs',
+    'mac2jb/scripts/gui-bundled-browser-probes.cjs',
+    'mac2jb/scripts/gui-nup.cjs',
+    'mac2jb/packaging/NUP-source.json',
+    'mac2jb/gui/NUPToolsView.swift',
+    'mac2jb/integrations/nup-support/site-packages/zstandard/backend_c.cpython-313-darwin.so',
+    'mac2jb/integrations/nup-support/site-packages/zstandard-0.25.0.dist-info/licenses/LICENSE',
+    'mac2jb/integrations/nsp-box/cli.py',
+    'mac2jb/integrations/nsp-box/LICENSE.txt',
+    'mac2jb/gui/NSPBoxToolsView.swift',
+    'mac2jb/gui/ArtemisHTTPView.swift',
+    'mac2jb/integrations/artemis/cpypwn-showcase.lua',
+    'mac2jb/integrations/artemis/seedsowhax-v1-mac2jb.zip',
+    'mac2jb/integrations/artemis/norahax-v1-mac2jb.zip',
+    'mac2jb/packaging/ArtemisLauncher-bundles.json',
+    'mac2jb/scripts/check-webkit-research.cjs',
+    'mac2jb/packaging/switch2-browser-research-provenance.json',
+    'mac2jb/vendor/switch2-captive-portal-research/LICENSE-NOTICE.md',
+    'mac2jb/vendor/switch2-captive-portal-research/serve-switch2-browser-probe.py',
+    'mac2jb/vendor/switch2-captive-portal-research/switch2-browser-probe.html',
+    'mac2jb/integrations/browser-probes/manifest.json',
+    'mac2jb/integrations/browser-probes/index.html',
+    'mac2jb/integrations/browser-probes/probes.js',
+    'mac2jb/integrations/browser-probes/style.css',
+    'mac2jb/scripts/dnswitch-launch.applescript',
+    'mac2jb/gui/DNSwitchModel.swift',
+    'mac2jb/gui/WebKitResearchModel.swift',
+    'mac2jb/gui/SaveKitToolsView.swift',
     'mac2jb/scripts/gui-stremio.cjs',
     'mac2jb/stremio/source-preferences.cjs',
     'mac2jb/scripts/gui-ouncecake.cjs',
     'mac2jb/keyboard.c',
+    'mac2jb/civswitch-hid.c',
+    'mac2jb/gui/CivSwitchModel.swift',
+    'mac2jb/gui/CivSwitchControlCenterModel.swift',
+    'mac2jb/vendor/CivSwitch/LICENSE',
+    'mac2jb/vendor/CivSwitch/core.js',
+    'mac2jb/vendor/CivSwitch/PicoSwitch/compress.js',
+    'mac2jb/integrations/civswitch/payload.txt',
+    'mac2jb/integrations/civswitch/provenance.json',
+    'mac2jb/integrations/civswitch/verify.cjs',
+    'mac2jb/integrations/civswitch/probe.cjs',
+    'mac2jb/integrations/civswitch/send-hello.cjs',
+    'mac2jb/integrations/civswitch/send-hello.test.cjs',
+    'mac2jb/integrations/civswitch/hello.js',
+    'mac2jb/vendor/CivSwitch-ControlCenter/LICENSE',
+    'mac2jb/vendor/CivSwitch-ControlCenter/README.md',
+    'mac2jb/vendor/CivSwitch-ControlCenter/VERSION',
+    'mac2jb/vendor/CivSwitch-ControlCenter/SHA256SUMS',
+    'mac2jb/vendor/CivSwitch-ControlCenter/control_center.js',
+    'mac2jb/vendor/CivSwitch-ControlCenter/send_js.py',
+    'mac2jb/vendor/CivSwitch-ControlCenter/tools/save_dump_receiver.py',
+    'mac2jb/vendor/CivSwitch-ControlCenter/tools/send_staged_payload.py',
+    'mac2jb/integrations/civswitch-control-center/mac-host.py',
+    'mac2jb/integrations/civswitch-control-center/verify-source.py',
+    'mac2jb/integrations/civswitch-control-center/test_mac_host.py',
+    'mac2jb/integrations/civswitch-control-center/provenance.json',
     'mac2jb/gui/PostBootstrapCommand.swift',
     'mac2jb/scripts/gui-keyboard.cjs',
+    'mac2jb/scripts/usb-controllers.cjs',
     'mac2jb/vendor/OunceCake/LICENSE',
     'mac2jb/vendor/OunceCake/README.md',
     'mac2jb/vendor/OunceCake/engine/oz-code/native.c',
@@ -202,6 +265,27 @@ with zipfile.ZipFile(archive) as z:
             'xcuserdata' in p.parts or 'project.xcworkspace' in p.parts or p.name.startswith('._') or
             p.name in block_names or p.suffix in block_suffixes or any(part.endswith('.dSYM') for part in p.parts)):
             violations.append('excluded binary/local/unused file: ' + path)
+    try:
+        provenance = json.loads(z.read('mac2jb/packaging/switch2-browser-research-provenance.json'))
+        files = provenance['files']
+        if (provenance['revision'] != '07cd867af2f1dc8f7b6ce59d964c3827cc3997b3'
+                or not isinstance(files, dict) or len(files) != 28):
+            raise ValueError('changed browser research provenance')
+        research_prefix = 'mac2jb/vendor/switch2-captive-portal-research/'
+        actual = {name[len(research_prefix):] for name in names
+                  if name.startswith(research_prefix) and not name.endswith('/')}
+        if actual != set(files):
+            violations.append('incomplete or unexpected browser research distribution')
+        for relative, digest in files.items():
+            parts = relative.split('/')
+            if (not parts or any(part in ('', '.', '..') for part in parts)
+                    or len(digest) != 64 or any(c not in '0123456789abcdef' for c in digest)):
+                raise ValueError('invalid browser research provenance entry')
+            name = research_prefix + relative
+            if name not in names or hashlib.sha256(z.read(name)).hexdigest() != digest:
+                violations.append('missing or changed browser research file: ' + name)
+    except (KeyError, ValueError, TypeError, UnicodeError):
+        violations.append('missing or malformed browser research provenance')
     driver_files = {
         'Contents/Info.plist': 'c38786b3eb1b51055505bca54c88df77b797e1785c146ec1d54ee3273a934faf',
         'Contents/MacOS/usbgadget': 'a32119c7908098c49c2540a17aad4d172378de969885ad4f4a752bdb8ef91308',
@@ -221,20 +305,21 @@ with zipfile.ZipFile(archive) as z:
             pins = {
                 'pepsipu': '95f5525089273c5fce0b95047f3600f8442e96ae',
                 'kurumuz': '81d5bb114c856109dadaf1077d927a9f297fe58d',
+                'cellenseres': '2f686045ff88e5a97f959d19752e00ef3b62011f',
                 'BermTheSequel': '9accf75508f4e7033ffc6912b2ebb7e0b6704e84',
                 'izmysh': 'd7a0df16e7e0c68acf78d2f68da8496ef3d9fd6b',
             }
             profiles = registry['profiles']
-            if (registry.get('format') != 'mac2jb-host-profiles-v1' or registry.get('default') != 'kurumuz'
-                    or len(profiles) != 4 or {row['id'] for row in profiles} != set(pins)):
+            if (registry.get('format') != 'mac2jb-host-profiles-v1' or registry.get('default') != 'cellenseres'
+                    or len(profiles) != 5 or {row['id'] for row in profiles} != set(pins)):
                 raise ValueError('invalid host profile registry')
             for row in profiles:
                 host = row['id']
                 folder = ('vendor/IZ2S-Platform/engines/izmysh' if host == 'izmysh' else
                           'vendor/ns2jb' if host == 'BermTheSequel' else 'vendor/ns2jb-hosts/' + host)
-                label = 'IZMYSH' if host == 'izmysh' else host
+                label = 'IZMYSH' if host == 'izmysh' else 'Cellenseres' if host == 'cellenseres' else host
                 held = host not in ('pepsipu', 'izmysh')
-                demo = host in ('kurumuz', 'BermTheSequel')
+                demo = host in ('kurumuz', 'cellenseres', 'BermTheSequel')
                 arity = 9 if host in ('pepsipu', 'izmysh') else 5
                 port = 39395 if host == 'izmysh' else 39380
                 save_name = 'NS2I' if host == 'izmysh' else 'NS2'
@@ -384,7 +469,7 @@ with zipfile.ZipFile(archive) as z:
     blit_adaptation = audit_inventory('BlitBun adaptation',
                                       blit_prefix + 'ADAPTATION-SHA256SUMS',
                                       blit_prefix,
-                                      '3eacda27cf240b66edd440d8b02f068869e2639c3b6b4f25cd1ca95be77df7b2',
+                                      'b1737094d4ddbba9bc84f3a2c4e7fc079101cb64f5618f7de6877e11f853fdc2',
                                       208, exact=False)
     blit_files = {name[len(blit_prefix):] for name in names
                   if name.startswith(blit_prefix) and not name.endswith('/')}
@@ -440,8 +525,8 @@ with zipfile.ZipFile(archive) as z:
     adaptation = audit_inventory('VacooTube adaptation',
                                  adaptation_prefix + 'ADAPTATION-SHA256SUMS',
                                  adaptation_prefix,
-                                 'a1c81d55d600d5dbf39b51153d686833b5a1aac209e391f1a4132c465a000061',
-                                 12, exact=False)
+                                 '63b0c85f150997ca098d63a54190625b63dcddaa74c59c18a1bca87b84e58f16',
+                                 13, exact=False)
     overlay_files = {name[len(adaptation_prefix):] for name in names
                      if name.startswith(adaptation_prefix + 'overlay/') and not name.endswith('/')}
     if overlay_files != {name for name in adaptation if name.startswith('overlay/')}:
@@ -514,6 +599,50 @@ with zipfile.ZipFile(archive) as z:
                     violations.append('changed ftpd-sb release provenance')
             except (KeyError, ValueError):
                 violations.append('missing or malformed ftpd-sb release provenance')
+
+    try:
+        civ = json.loads(z.read('mac2jb/integrations/civswitch/provenance.json'))
+        payload = z.read('mac2jb/integrations/civswitch/payload.txt')
+        if (civ.get('upstream') != 'https://github.com/Gezine/CivSwitch' or
+                civ.get('commit') != '10b38e9f5abfd13a4b0bec8af24b026e44567da3' or
+                civ.get('license') != 'MIT' or civ.get('payloadLines') != 87 or
+                civ.get('payloadSha256') != '6ea468ca392558ab2f8f2384200745a8619187cebc5357d5e985fd3ffdada37d' or
+                hashlib.sha256(payload).hexdigest() != civ['payloadSha256'] or
+                len(payload.splitlines()) != 87):
+            violations.append('changed CivSwitch source or payload provenance')
+        for name, expected in civ.get('files', {}).items():
+            member = 'mac2jb/vendor/CivSwitch/' + name
+            if member not in names or hashlib.sha256(z.read(member)).hexdigest() != expected:
+                violations.append('changed CivSwitch upstream source: ' + name)
+    except (KeyError, ValueError, TypeError):
+        violations.append('missing or malformed CivSwitch source provenance')
+
+    try:
+        control = json.loads(z.read('mac2jb/integrations/civswitch-control-center/provenance.json'))
+        prefix = 'mac2jb/vendor/CivSwitch-ControlCenter/'
+        listing = z.read(prefix + 'SHA256SUMS')
+        files = control['files']
+        if (control.get('upstream') != 'https://github.com/MatthewKuKanich/CivSwitch-ControlCenter' or
+                control.get('commit') != '259cbe5e66f2e649a79a16f06db4cdb012017daa' or
+                control.get('version') != '1.0.0' or control.get('license') != 'MIT' or
+                control.get('sha256sumsSha256') != hashlib.sha256(listing).hexdigest() or
+                not isinstance(files, dict) or len(files) != 9):
+            raise ValueError('changed Control Center provenance')
+        listed = {}
+        for line in listing.decode().splitlines():
+            digest, path = line.split('  ./', 1)
+            if path in listed:
+                raise ValueError('duplicate Control Center source')
+            listed[path] = digest
+        actual = {name[len(prefix):] for name in names if name.startswith(prefix) and not name.endswith('/')}
+        if actual != set(files) | {'SHA256SUMS'} or listed != files:
+            raise ValueError('incomplete Control Center source')
+        for name, digest in files.items():
+            member = prefix + name
+            if hashlib.sha256(z.read(member)).hexdigest() != digest:
+                violations.append('changed Control Center upstream source: ' + name)
+    except (KeyError, ValueError, TypeError, UnicodeError):
+        violations.append('missing or malformed Control Center source provenance')
 
 if violations:
     for v in violations:

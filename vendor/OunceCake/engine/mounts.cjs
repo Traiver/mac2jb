@@ -95,7 +95,7 @@ function createGameFiles(attachment, shouldStop = () => false) {
           originalSource: source.originalSource,
         });
       } else if (section === 'exefs') {
-        handle = await openCode({ title: source.runtimeProgramId, storage: source.storage, attributes, source });
+        handle = await openCode({ title: source.runtimeProgramId, storage: source.storage, attributes, source, exactSource: Boolean(base) && !base.compacted });
       } else {
         // base program archive uses type 1, other nca files (data) use 6
         await s.write(s.base + 0x2000, filename);
@@ -213,7 +213,9 @@ const NONE = 0xffffffff;
 const MAX_METADATA = 64 * 1024 * 1024;
 
 function checkRomfs(ok, why) {
-  if (!ok) throw new Error('Invalid RomFS: ' + why);
+  if (!ok) throw Object.assign(new Error('Invalid RomFS: ' + why), {
+    code: 'ROMFS_INVALID', romfsDiagnostic: { reason: why },
+  });
 }
 
 function integer(value) {
@@ -241,6 +243,13 @@ async function readRomfs(read, storageSize) {
     for (let at = 0; at < length; at += 0x40000) {
       const n = Math.min(0x40000, length - at);
       const part = await read(offset + at, n);
+      if (!Buffer.isBuffer(part) || part.length !== n) {
+        throw Object.assign(new Error('Invalid RomFS: short read'), {
+          code: 'ROMFS_SHORT_READ',
+          romfsDiagnostic: { reason: 'short-read', storageBytes: storageSize,
+            offset: offset + at, expectedBytes: n, receivedBytes: Buffer.isBuffer(part) ? part.length : null },
+        });
+      }
       parts.push(part);
     }
 
@@ -248,8 +257,17 @@ async function readRomfs(read, storageSize) {
   }
 
   const header = await exact(0, 0x50);
+  const headerSize = header.readBigUInt64LE();
+  if (headerSize !== 0x50n) {
+    throw Object.assign(new Error('Invalid RomFS: header size'), {
+      code: 'ROMFS_HEADER_INVALID',
+      romfsDiagnostic: { reason: 'header-size', storageBytes: storageSize,
+        expectedHeaderSize: '0x50', actualHeaderSize: '0x' + headerSize.toString(16),
+        headerPrefix: header.subarray(0, 16).toString('hex'),
+        zeroHeader: header.every(byte => byte === 0) },
+    });
+  }
   const h = Array.from({ length: 10 }, (_, i) => integer(header.readBigUInt64LE(i * 8)));
-  checkRomfs(h[0] === 0x50, 'header size');
 
   const ranges = [];
 
@@ -496,11 +514,33 @@ function buildIndex(views,exportRoot) {
   return bytes;
 }
 
+// A partial Base export must never turn invalid RomFS bytes into an empty filesystem.
+// Its failed storage is closed before another section can be attempted.
+async function readRomfsSection({ read, storageSize, source, title, view,
+  allowInvalid = false, close, shouldStop = () => false }) {
+  try {
+    return { entries: await readRomfs(read, storageSize) };
+  } catch (error) {
+    if (error.romfsDiagnostic) {
+      const { contentId, contentPath, storage, selection, contentType, programIndex } = source;
+      error.romfsDiagnostic = { storageBytes: storageSize, ...error.romfsDiagnostic, titleId: title, view,
+        contentId, contentPath, storage, selection, contentType, programIndex };
+    }
+    if (!allowInvalid || !['ROMFS_HEADER_INVALID', 'ROMFS_INVALID'].includes(error.code) || error.cleanupBlocked)
+      throw error;
+    await cleanup([close]);
+    throwIfCancelled(shouldStop);
+    return { issue: { path: view, status: 'invalid', message: error.message,
+      diagnostic: error.romfsDiagnostic } };
+  }
+}
+
 async function prepareGame({ attachment: a, title, baseOnly = false, part, exportRoot, shouldStop = () => false }) {
   if(part!==undefined&&!['base','update','dlc','additional'].includes(part))throw Error('Invalid export part');
   const views = [];
   const sources = [];
   const absentSources = [];
+  const sectionIssues = [];
   const prepared = new Set();
   const files = createGameFiles(a, shouldStop);
 
@@ -571,6 +611,8 @@ async function prepareGame({ attachment: a, title, baseOnly = false, part, expor
 
         if (allowAbsent && error.nativeResult.canonical === 0x7d202) {
           absentSources.push(error.source);
+          sectionIssues.push({ path: prefix + '/' + section, status: 'absent',
+            message: 'The console reported that this section is not present.' });
           return { source: error.source };
         }
 
@@ -585,17 +627,28 @@ async function prepareGame({ attachment: a, title, baseOnly = false, part, expor
         error.source || !missing.has(error.nativeResult.canonical))?.error || failures.at(-1)?.error;
       const details = failures.map(({ storage, error }) =>
         '  ' + (names[storage] || 'Storage ' + storage) + ': ' + error.message).join('\n');
-      throw new Error('Could not prepare ' + prefix + '/' + section + ':\n' +
+      const error = new Error('Could not prepare ' + prefix + '/' + section + ':\n' +
         (details || '  No installed content'), { cause });
+      if (cause?.codeFsDiagnostic) error.codeFsDiagnostic = cause.codeFsDiagnostic;
+      error.exportInfo = { kind: 'game', partial: false, baseCompacted: cause?.source?.compacted === true,
+        sections: [...views.map(view => ({path:view.path,status:'available',entries:view.entries.length})),
+          ...sectionIssues, {path:prefix+'/'+section,status:'failed',message:cause?.message||error.message,
+            diagnostic:cause?.codeFsDiagnostic}] };
+      throw error;
     }
 
-    const entries =
-      mounted.kind === 'storage'
-        ? await readRomfs((offset, length) => {
-            cancelled();
-            return files.read(mounted, offset, length);
-          }, mounted.size)
-        : await filesystemEntries(mounted);
+    let entries;
+    if (mounted.kind === 'storage') {
+      const result = await readRomfsSection({
+        read: (offset, length) => { cancelled(); return files.read(mounted, offset, length); },
+        storageSize: mounted.size, source: mounted.source, title,
+        view: prefix + '/' + section,
+        allowInvalid: part === 'base' && mounted.source.contentType === 1,
+        close: () => files.close(mounted), shouldStop,
+      });
+      if (result.issue) { sectionIssues.push(result.issue); return mounted; }
+      entries = result.entries;
+    } else entries = await filesystemEntries(mounted);
     const mount = sources.length;
     // composed stuff (i.e game updates mounted on base games) and codefs need to stay mounted
     const deferredFilesystem = mounted.kind === 'filesystem' && section !== 'exefs' && !mounted.composed;
@@ -666,7 +719,7 @@ async function prepareGame({ attachment: a, title, baseOnly = false, part, expor
       for (const section of sections) {
         if(!includeSection(part,category,contentType,section))continue;
         const mounted = await mountView(path, section, choices,
-          contentType === 1 && (section === 'romfs' || section === 'logo'));
+          contentType === 1 && (section === 'romfs' || section === 'exefs' || section === 'logo'));
         choices = choices.filter(candidate => candidate.storage === mounted.source.storage);
       }
     }
@@ -693,6 +746,18 @@ async function prepareGame({ attachment: a, title, baseOnly = false, part, expor
   cancelled();
   const dataPatches = baseOnly ? [] : await discoverDataPatches({ ...a, title, shouldStop });
   const [baseGroup] = groups(bases);
+  const compactedBase = Boolean(baseGroup?.length && baseGroup.every(base => base.compacted));
+  if (compactedBase && !part) {
+    const updateAvailable = updates.length > 0;
+    throw Object.assign(new Error(updateAvailable
+      ? 'Compacted Base. Choose Update for installed files; X for raw NCAs.'
+      : 'Compacted Base. X exports original NCAs; no installed Update found.'), {
+      code: 'COMPACTED_BASE', exportInfo: { kind: 'game', baseCompacted: true, updateAvailable,
+        baseMetadata: baseGroup.map(base => ({storage:base.storage,version:base.version,
+          installType:base.installType,metadataAttributes:base.metadataAttributes})) },
+    });
+  }
+  if (baseGroup) baseGroup.sort((a,b) => Number(Boolean(a.compacted))-Number(Boolean(b.compacted)));
   if (baseGroup) await mountPackage('/base', baseGroup.map(base => ({ storage: base.storage, base })));
 
   for (const group of groups(updates)) {
@@ -772,11 +837,16 @@ async function prepareGame({ attachment: a, title, baseOnly = false, part, expor
     }
   }
 
-  if(!sources.length)throw Object.assign(Error('No content available in this export category.'),{code:'EXPORT_PART_EMPTY'});
-  return { index: buildIndex(views,exportRoot), sources };
+  const exportInfo = { kind: 'game', baseCompacted: compactedBase, merged: part === 'update' && compactedBase, partial: sectionIssues.some(item => item.status === 'invalid'),
+    sections: [...views.map(view => ({ path: view.path, status: 'available', entries: view.entries.length })),
+      ...sectionIssues] };
+  if(!sources.length)throw Object.assign(Error(part === 'base'
+    ? 'No readable Base sections. X: raw NCAs; or choose another category.'
+    : 'No content available in this export category.'),{code:'EXPORT_PART_EMPTY',exportInfo});
+  return { index: buildIndex(views,exportRoot), sources, exportInfo };
 }
 
-module.exports = { prepareGame, readRomfs, buildIndex };
+module.exports = { prepareGame, readRomfs, readRomfsSection, buildIndex };
 
 function includeSection(part,category,contentType,section){
  if(!part)return true;

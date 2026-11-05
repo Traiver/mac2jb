@@ -1,0 +1,4 @@
+- Merge upstream v0.7.3: Cellenseres host, guided setup, USB discovery and bootstrap ETA.
+- Add CivSwitch/Control Center, SaveKit, Artemis saves and Elden Ring save conversion.
+- Add native HBLauncher/MintNES, SD browsing, browser research, DNSwitch, NSP-Box and NUP tools.
+- Improve OunceCake with compacted Base detection, combined Update exports, independent ExeFS/partial exports and clearer diagnostics.

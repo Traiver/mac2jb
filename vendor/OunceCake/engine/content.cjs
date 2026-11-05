@@ -127,12 +127,16 @@ async function discoverInstalled({ s, domain, service, title, metaType, kind, st
             throwIfCancelled(shouldStop);
             const meta = await readContentMeta(s, database, item.metaKey);
             const headerSize = meta.readUInt16LE();
+            item.installType = item.metaKey[13];
+            item.metadataAttributes = meta[6];
+            item.compacted = (meta[6] & 4) !== 0;
             if ((metaType === 0x82 && headerSize < 8) || (metaType === 0x84 && headerSize < 16)) throw new Error('Truncated DLC extended metadata');
             item.contents = [];
             for (let i = 0; i < meta.readUInt16LE(2); i++) {
               const info = meta.subarray(8 + meta.readUInt16LE() + i * 24);
               item.contents.push({
                 contentId: info.subarray(0, 16).toString('hex'),
+                expectedBytes: info.readUIntLE(16, 5),
                 attributes: info[21] & 15,
                 contentType: info[22],
                 programIndex: info[23],
@@ -308,6 +312,9 @@ async function resolveContent({ s, domain, service, title, storage, base, update
       metaKey: key,
       programIndex,
       applicationTitle: title,
+      installType: key[13],
+      metadataAttributes: selected?.metadataAttributes,
+      compacted: selected?.compacted === true,
     };
 
     if (root) {

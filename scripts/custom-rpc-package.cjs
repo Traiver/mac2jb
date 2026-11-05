@@ -11,7 +11,7 @@ const {promisify}=require('node:util');
 const manifestName='mac2jb-rpc-app.json';
 const ouncecakeFiles=[
   'engine/protocol.cjs','engine/session.cjs','engine/content.cjs',
-  'engine/fs-context.cjs','engine/program.cjs','engine/mounts.cjs',
+  'engine/fs-context.cjs','engine/program.cjs','engine/mounts.cjs','engine/dlc.cjs',
   'engine/server.cjs','engine/native-license.cjs','engine/exports.cjs','engine/firmware.cjs','engine/preparation.cjs','engine/oz-code/native.bin'
 ];
 const check=(value,message)=>{if(!value)throw Error(message);};
@@ -75,6 +75,7 @@ async function autoOunceCakeManifest(folder){
     for(const item of await fs.readdir(directory,{withFileTypes:true})){
       const name=path.posix.join(relative,item.name),file=path.join(folder,name);
       check(fileName(name),'OunceCake fork contains an unsafe file path.');
+      if(item.name==='.build'&&item.isDirectory())continue;
       if(item.isDirectory())await inventory(name);
       else if(item.isFile()&&/\.(?:cjs|json|bin)$/.test(item.name)&&!['engine/build-ftp.cjs','engine/build-native.cjs'].includes(name)){
         check(Object.keys(files).length<512,'OunceCake fork has too many runtime files.');
@@ -192,8 +193,9 @@ async function runScript(run,packageInfo,options={}){
   const parent=path.join(root,'runs');await fs.mkdir(parent,{recursive:true,mode:0o700});
   const directory=await fs.mkdtemp(path.join(await fs.realpath(parent),'custom-rpc-'));
   const markerFile=path.join(selected.directory,'.mac2jb-hblauncher-attempt.json');
-  await fs.writeFile(markerFile,JSON.stringify({application:'custom-homebrew',
-    adapter:'script',fingerprint:packageInfo.fingerprint,started:new Date().toISOString()}),
+  const marker=JSON.stringify({application:'custom-homebrew',
+    adapter:'script',fingerprint:packageInfo.fingerprint,started:new Date().toISOString()});
+  await fs.writeFile(markerFile,marker,
   {flag:'wx',mode:0o600});
   const entry=path.join(packageInfo.folder,packageInfo.manifest.entry);
   let child,failed,stopped=false,cleanupVerified=false;
@@ -234,8 +236,12 @@ async function runScript(run,packageInfo,options={}){
       failed?.message||'Custom RPC app ended without a clean exit.');
     check(stopped&&cleanupVerified,
       'Custom RPC app did not confirm its native shutdown. Restart the console.');
+    check((await request(selected.directory,{command:'status'}))?.ready===true,
+      'The held RPC session ended before custom app shutdown was verified.');
+    check((await fs.readFile(markerFile)).toString()===marker,'The custom app attempt marker changed.');
     report.status='stopped';report.cleanupVerified=true;report.completed=new Date().toISOString();
-    await save();emit('stopped',{path:directory,message:packageInfo.manifest.name+' stopped.'});
+    await save();emit('stopped',{path:directory,message:packageInfo.manifest.name+' stopped.',
+      cleanupVerified:true,attemptMarkerSha256:digest(marker),attemptMarkers:['.mac2jb-hblauncher-attempt.json']});
     return {stopped:true,run:selected.directory};
   }catch(error){
     report.status='cleanup-blocked';report.error=error.message;report.completed=new Date().toISOString();

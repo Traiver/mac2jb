@@ -327,7 +327,7 @@ async function writeLocation(a, resolver, programId, title, location, command = 
     pathRequest(command, input, a.s.base + 0x4000, 0x300)), label);
 }
 
-async function selectPatch({ attachment: a, title, source, originalSource, operation }) {
+async function selectPatch({ attachment: a, title, source, originalSource, operation, verifySelected = false }) {
   const runtimeProgramId = source.runtimeProgramId;
   const resolvers = new Map();
   let registered;
@@ -367,6 +367,12 @@ async function selectPatch({ attachment: a, title, source, originalSource, opera
     
     attempted = true;
     await writeLocation(a, registered, runtimeProgramId, title, patch, 1, 'Register owned patch location');
+    if (verifySelected) {
+      const selected = await readLocation(a, registered, runtimeProgramId);
+      if (!selected || selected.contentPath !== patch.contentPath ||
+          selected.attributes.slice(0, 2) !== patch.attributes.slice(0, 2))
+        throw new Error('Could not prepare selected Base CodeFS path: resolver readback differs');
+    }
 
     const mount = () =>
       operation({ runtimeProgramId, original, patch, originalContent: originalSource });
@@ -386,12 +392,20 @@ async function selectPatch({ attachment: a, title, source, originalSource, opera
     if (!attempted) return;
     if (previous) {
       await writeLocation(a, registered, runtimeProgramId, title, previous, 1, 'Restore previous program location');
+      if (verifySelected) {
+        const restored = await readLocation(a, registered, runtimeProgramId);
+        if (!restored || restored.contentPath !== previous.contentPath ||
+            restored.attributes.slice(0, 2) !== previous.attributes.slice(0, 2))
+          throw new Error('Base CodeFS resolver restoration could not be verified');
+      }
       return;
     }
     const actual = await readLocation(a, registered, runtimeProgramId);
     if (!actual) return;
     success(await a.s.ipc('Remove owned patch location', registered, 2, idBytes(runtimeProgramId)),
       'Remove owned patch location');
+    if (verifySelected && await readLocation(a, registered, runtimeProgramId))
+      throw new Error('Base CodeFS resolver removal could not be verified');
   }, () => closeHandles(a.s, [...resolvers.values(), registered].filter(Boolean)));
 }
 
@@ -467,18 +481,44 @@ function createProgramMounts(attachment) {
     return domain.oneHandle(reply);
   };
 
-  const openCode = (args) => args.source.programIndex || args.source.selection === 'dlc' ? selectPatch({
+  const openSelectedCode = (args, verifySelected = false) => selectPatch({
     attachment,
     title: args.source.applicationTitle,
     source: args.source,
     originalSource: args.source,
+    verifySelected,
     operation: () => withUpdateLicenses({
       attachment,
       title: args.source.applicationTitle,
       source: args.source,
       operation: () => openCodeRaw(args),
     }),
-  }) : openCodeRaw(args);
+  });
+
+  const openCode = async (args) => {
+    if (args.source.programIndex || args.source.selection === 'dlc') return openSelectedCode(args);
+    try { return await openCodeRaw(args); }
+    catch (error) {
+      // Only a known failed Base open may try the already-supported path resolver.
+      // A failed native restoration or another error must never cause this retry.
+      if (!args.exactSource || error.cleanupBlocked || error.nativeResult?.canonical !== 0x244802)
+        throw error;
+      const diagnostic = { titleId: args.title, contentId: args.source.contentId,
+        contentPath: args.source.contentPath, storage: args.source.storage,
+        initialResult: error.nativeResult, retryRoute: 'verified-selected-base-path' };
+      console.log('Base CodeFS: retrying selected NCA path ' + args.source.contentPath);
+      try {
+        const handle = await openSelectedCode(args, true);
+        args.source.codeFsRoute = diagnostic.retryRoute;
+        console.log('Base CodeFS: selected NCA path opened; previous resolver state restored.');
+        return handle;
+      } catch (retryError) {
+        retryError.codeFsDiagnostic = { ...diagnostic, retryResult: retryError.nativeResult,
+          retryError: retryError.message, cleanupBlocked: retryError.cleanupBlocked === true };
+        throw retryError;
+      }
+    }
+  };
 
   const readPolicy = code => withCleanup(async () => {
     const file = success(await filesystem.openFile(s, code, '/main.npdm'), 'Open program policy');

@@ -1,5 +1,12 @@
 # Changelog
 
+## mac2jb v0.7.3 — 2026-11-05
+
+- Merge upstream v0.7.3: Cellenseres host, guided setup, USB discovery and bootstrap ETA.
+- Add CivSwitch/Control Center, SaveKit, Artemis saves and Elden Ring save conversion.
+- Add native HBLauncher/MintNES, SD browsing, browser research, DNSwitch, NSP-Box and NUP tools.
+- Improve OunceCake with compacted Base detection, combined Update exports, independent ExeFS/partial exports and clearer diagnostics.
+
 ## mac2jb v0.7.0 — 2026-11-05
 
 - Update OunceCake with NSO activation, additional content, DLC updates and patched manuals.

@@ -13,7 +13,7 @@ const check=(value,message)=>{if(!value)throw Error(message);};
 const blocked=error=>Boolean(error?.cleanupBlocked||error?.errors?.some(blocked));
 const recoverableContentError=error=>!blocked(error)&&!(error instanceof AggregateError)&&
  error?.code!=='FTP_CANCELLED'&&Boolean(error?.nativeResult||canRawFallback(error)||
-  ['PREPARATION_TIMEOUT','RAW_EXPORT_UNAVAILABLE','EXPORT_PART_EMPTY'].includes(error?.code)||
+  ['PREPARATION_TIMEOUT','RAW_EXPORT_UNAVAILABLE','EXPORT_PART_EMPTY','COMPACTED_BASE'].includes(error?.code)||
   (error?.code==='HTTP_SERVER_ALLOCATION_FAILED'&&error.retrySafe===true)||
   /^(Invalid RomFS:|Invalid server index:|Could not prepare |No installed base Program content was found|Content requires an original-content mount)/.test(error?.message||''));
 
@@ -234,7 +234,7 @@ function create({rpc,menu,gpu,app,directory,root,runDirectory,sourceSession,
   if(!raw&&!chosen.exportPart&&largeTitles.has(chosen.titleId)){
    selected=true;const previous=task;track((async()=>{await previous;if(stopping)return;await showParts(chosen);selected=false;})());return;
   }
-  selected=true;report.titleId=games[index].titleId;report.exportKind=games[index].kind||'game';delete report.error;delete report.rawFallbackReason;delete report.exportInfo;delete report.allocationFailure;
+  selected=true;report.titleId=games[index].titleId;report.exportKind=games[index].kind||'game';delete report.error;delete report.romfsDiagnostic;delete report.rawFallbackReason;delete report.exportInfo;delete report.allocationFailure;
   const selectedTitle=games[index].titleName||games[index].name;
   await renderTitle(games[index]);
   await publish(protocol.STATES.preparing,'Preparing export'+(games[index].kind==='firmware-nca'?'':' ['+games[index].titleId+']'));
@@ -266,7 +266,29 @@ function create({rpc,menu,gpu,app,directory,root,runDirectory,sourceSession,
      await releaseSelectedHandles();
      if(stopping)return;
      selected=false;report.titleId=null;report.error=error.message;
-     const message=error.code==='PREPARATION_TIMEOUT'?'Preparation timed out. X: raw NCAs; or choose another title.':error.message;
+     if(error.exportInfo)report.exportInfo=error.exportInfo;
+     if(error.codeFsDiagnostic)onProgress('OunceCake Base CodeFS diagnostics: '+JSON.stringify(error.codeFsDiagnostic));
+     if(error.romfsDiagnostic){
+      report.romfsDiagnostic={...error.romfsDiagnostic,titleId:entry.titleId};
+      onProgress('OunceCake RomFS diagnostics: '+JSON.stringify(report.romfsDiagnostic));
+     }
+     if(error.code==='COMPACTED_BASE'&&!raw&&!entry.exportPart){
+      report.splitReason='COMPACTED_BASE';
+      await showParts(entry);
+      await publish(protocol.STATES.catalog,error.message,games.length);
+      await resumeTitleFtp();onProgress('OunceCake: '+error.message);return;
+     }
+     if(!raw&&!entry.exportPart&&(!entry.kind||entry.kind==='game')&&
+       error.code==='ROMFS_HEADER_INVALID'&&error.romfsDiagnostic?.zeroHeader===true&&
+       error.romfsDiagnostic.contentType===1&&error.romfsDiagnostic.view?.startsWith('/base/')){
+      report.splitReason='ZERO_BASE_ROMFS_HEADER';
+      await showParts(entry);
+      await publish(protocol.STATES.catalog,'Base RomFS header is zero. Try Update or X for raw NCAs.',games.length);
+      await resumeTitleFtp();onProgress('OunceCake: Base RomFS header is zero; select Update separately, or X for original NCAs.');return;
+     }
+     const message=error.code==='PREPARATION_TIMEOUT'?'Preparation timed out. X: raw NCAs; or choose another title.':
+      error.exportInfo?.baseCompacted&&entry.exportPart==='base'?'Compacted Base is not readable alone. Choose Update or X for raw NCAs.':
+      error.romfsDiagnostic?'RomFS unavailable. X: raw NCAs; or choose another title.':error.message;
      await publish(protocol.STATES.catalog,message,games.length);
      await resumeTitleFtp();onProgress('OunceCake: '+error.message);return;
     }
@@ -289,6 +311,9 @@ function create({rpc,menu,gpu,app,directory,root,runDirectory,sourceSession,
     await showParts(entry);selected=false;report.titleId=null;await resumeTitleFtp();return;
    }
    report.exportInfo=prepared.exportInfo||null;
+   if(prepared.exportInfo?.partial){
+    onProgress('OunceCake: Partial export: '+JSON.stringify(prepared.exportInfo.sections));
+   }
    if(raw)report.exportKind=prepared.exportInfo?.kind||'game-nca';
    if(stopping)return;
    check(await live(),'The held RPC session ended before HTTP/WebDAV deployment');
@@ -304,7 +329,7 @@ function create({rpc,menu,gpu,app,directory,root,runDirectory,sourceSession,
    if(stopping)return;
    check(await live(),'The held RPC session ended during HTTP/WebDAV startup');
    report.httpURL='http://'+address+':8080/';
-   await publish(protocol.STATES.running,(raw?'RAW HTTP://':'HTTP://')+address+':8080/');
+   await publish(protocol.STATES.running,(raw?'RAW HTTP://':prepared.exportInfo?.partial?'PARTIAL HTTP://':prepared.exportInfo?.merged?'COMBINED HTTP://':'HTTP://')+address+':8080/');
    onProgress('OunceCake: '+report.httpURL);
   })());
  }
