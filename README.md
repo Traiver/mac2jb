@@ -368,6 +368,22 @@ to stop. The ice-blue scrollbar at the right shows the current visible position.
 It is hidden when all entries fit on one page. Connect to the displayed HTTP/WebDAV address on port 8080
 with a browser or WinSCP (WebDAV, no TLS or credentials).
 
+To export save data, close the game, highlight it in OunceCake and press **Y Saves**.
+Choose the exact user ID and archive (Account, shared Device, BCAT or Cache), then
+press **A**. OunceCake opens the selected archive read-only, copies every file to
+a private Mac backup and verifies its SHA-256 checksums. The download is enabled
+only after copying and native-handle cleanup have completed. No save files are
+written or committed on the console; restore/import is not part of this feature.
+
+Save downloads use the **Mac address and port displayed on the Switch**, including
+the random URL path. In WinSCP choose WebDAV without TLS, copy that path into the
+remote directory and download the complete title folder, including `files/` and
+`manifest.json`. The manifest records the title, raw account UID, archive identity,
+file sizes and checksums; save files named `manifest.json` remain inside `files/`.
+Press **B** to stop sharing and return to the archive list. A completed local copy
+remains in the current session's `runs/mintbrew-*/save-backups/` directory until the
+session is deleted. Failed or cancelled copies are removed and never shared.
+
 Title rows use the full list width; long names can scale down to fit while retaining their TitleID. The firmware entry omits its internal sentinel ID.
 
 Japanese title glyphs use the Japanese font installed with macOS (not redistributed). Selected titles are rendered as Unicode image tiles on the Switch, including during preparation and transfer; operational messages and URLs retain their ASCII rendering.

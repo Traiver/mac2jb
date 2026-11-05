@@ -33,7 +33,7 @@ function ipv4(data){
 }
 
 function create({rpc,menu,gpu,app,directory,root,runDirectory,sourceSession,
- onProgress=()=>{},onFatal=()=>{},onGameList=async()=>{},modules,verifyHeld,rasterGames,liveCheck,preparationTimeoutMs=DEFAULT_TIMEOUT_MS}={}){
+ onProgress=()=>{},onFatal=()=>{},onGameList=async()=>{},modules,verifyHeld,rasterGames,liveCheck,saveTools=require('./saves.cjs'),saveServer=require('./save-server.cjs'),preparationTimeoutMs=DEFAULT_TIMEOUT_MS}={}){
  check(rpc&&menu&&gpu&&app&&typeof directory==='string'&&typeof root==='string'&&
   typeof runDirectory==='string'&&typeof sourceSession==='string',
   'OunceCake requires the held MintBrew session');
@@ -52,7 +52,7 @@ function create({rpc,menu,gpu,app,directory,root,runDirectory,sourceSession,
  };
  let started=false,stopping=false,selected=false,status=protocol.STATES.reading;
  let task,attachment,server,run,games=[],failure,closing,nativeImage,baselineHandles;
- let allEntries=[],catalogs,view='root',generation=0,focus=0,partTitle,titleVisible=false;
+ let allEntries=[],catalogs,view='root',generation=0,focus=0,partTitle,saveTitle,titleVisible=false;
  const largeTitles=new Set();
  const report={session:rpc.a.session,sourceSession,started:new Date().toISOString(),status:'reading',
   resourcesRetained:true};
@@ -60,7 +60,7 @@ function create({rpc,menu,gpu,app,directory,root,runDirectory,sourceSession,
   JSON.stringify(report,null,2)+'\n',{mode:0o600});
  const publish=async(state,message='',count=games.length)=>{
   status=state;report.status=Object.keys(protocol.STATES).find(key=>protocol.STATES[key]===state);
-  await rpc.write(mapped,protocol.header(state,count,message,generation,view!=='root',focus,titleVisible&&(state!==protocol.STATES.catalog||view==='parts')));await save();
+  await rpc.write(mapped,protocol.header(state,count,message,generation,view!=='root',focus,titleVisible&&(state!==protocol.STATES.catalog||['parts','saves'].includes(view)),view==='saves'?2:view==='root'||view==='parts'?1:0));await save();
  };
  const live=liveCheck||(async()=>{
   try{
@@ -96,9 +96,10 @@ function create({rpc,menu,gpu,app,directory,root,runDirectory,sourceSession,
  async function stopServer(){
   if(server){
    try{
-    check(await live(),'OunceCake lost its held session before HTTP/WebDAV shutdown');
+    if(server.kind!=='local-save')check(await live(),'OunceCake lost its held session before HTTP/WebDAV shutdown');
     const proof=await server.close();
-    check(proof?.nativeStopped===true&&proof?.joined===true&&proof?.mappingsCleared===true,
+    check(server.kind==='local-save'?proof?.localStopped===true&&proof?.connectionsClosed===true:
+     proof?.nativeStopped===true&&proof?.joined===true&&proof?.mappingsCleared===true,
      'OunceCake could not prove native HTTP/WebDAV shutdown');
     (report.shutdowns ||= []).push(proof);server=null;
    }catch(error){error.cleanupBlocked=true;report.cleanupBlocked=true;failure=error;await save();throw error;}
@@ -169,7 +170,7 @@ function create({rpc,menu,gpu,app,directory,root,runDirectory,sourceSession,
   titleVisible=true;
  }
  async function showCatalog(nextView,nextFocus=0){
-  if(nextView!=='parts')titleVisible=false;
+  if(!['parts','saves'].includes(nextView))titleVisible=false;
   const next=catalogs[nextView];check(next&&next.length>0&&next.length<=protocol.MAX_GAMES,'OunceCake catalog exceeds its display capacity');
   await publish(protocol.STATES.reading,nextView==='system'?'Opening System Files...':'Opening main list...');
   const image=await rasterRows(next);
@@ -216,6 +217,60 @@ function create({rpc,menu,gpu,app,directory,root,runDirectory,sourceSession,
   track(discover());
   return Promise.resolve();
  }
+ async function saveOperation(operation){
+  try{await operation();}
+  catch(error){
+   if(blocked(error))throw error;
+   await releaseSelectedHandles();
+   if(stopping)return;
+   selected=false;report.error=error.message;report.titleId=null;
+   await publish(protocol.STATES.catalog,error.message);onProgress('OunceCake: '+error.message);
+   await resumeTitleFtp();
+  }
+ }
+ async function selectSaves(index){
+  check(started&&!stopping&&!selected&&status===protocol.STATES.catalog&&Number.isInteger(index)&&index>=0&&index<games.length,'OunceCake save selection is unavailable');
+  const entry=games[index];
+  if(entry.navigation||entry.saveArchive||entry.kind&&entry.kind!=='game'){
+   await publish(protocol.STATES.catalog,'Select a game, then press Y for save data.');return;
+  }
+  selected=true;saveTitle=entry.titleId;const previous=task;
+  track((async()=>{await previous;if(stopping)return;
+   await saveOperation(async()=>{
+    await renderTitle(entry);await publish(protocol.STATES.preparing,'Reading save archives. The game must be closed.');
+    check(await live(),'The held RPC session ended before save enumeration');
+    const archives=await runPreparation(shouldStop=>saveTools.inventory({attachment,titleId:entry.titleId,shouldStop}),
+     {timeoutMs:preparationTimeoutMs,shouldStop:()=>stopping,onProgress});
+    await releaseSelectedHandles();if(stopping)return;
+    if(!archives.length){selected=false;await publish(protocol.STATES.catalog,'No save archives found for this game.');return;}
+    catalogs.saves=[{name:'[..] Back',navigation:'root'},...archives.map(archive=>({name:saveTools.label(archive),
+     titleName:entry.titleName||entry.name,titleId:entry.titleId,kind:'save-data',saveArchive:archive}))];
+    await showCatalog('saves',1);selected=false;
+   });
+  })());
+ }
+ async function exportSave(entry){
+  selected=true;report.titleId=entry.titleId;report.exportKind='save-data';delete report.error;
+  const previous=task;
+  track((async()=>{await previous;if(stopping)return;
+   await saveOperation(async()=>{
+    await renderTitle(entry);await publish(protocol.STATES.preparing,'Backing up save data. Keep the game closed.');
+    check(await live(),'The held RPC session ended before save backup');
+    const address=saveServer.hostAddress(ipv4(await rpc.read(menu.controls.mapped+layout.OFFSET,layout.FIELD.network+24)));
+    const backup=await runPreparation(shouldStop=>saveTools.snapshot({attachment,archive:entry.saveArchive,
+     directory:path.join(directory,'save-backups'),shouldStop,onProgress}),
+     {timeoutMs:preparationTimeoutMs,shouldStop:()=>stopping,onProgress});
+    await releaseSelectedHandles();
+    report.saveBackup={folder:backup.folder,files:backup.manifest.files,bytes:backup.manifest.bytes,selection:entry.saveArchive};
+    await save();onProgress('OunceCake: Verified save backup: '+backup.folder);
+    if(stopping)return;
+    const name=(entry.titleName.replace(/[\\/<>:"|?*\x00-\x1f]/g,' ').trim().slice(0,100)||'Game')+' ['+entry.titleId+']';
+    server=await saveServer.start({...backup,name,address});report.httpURL=server.url;
+    await publish(protocol.STATES.running,server.url);
+    onProgress('OunceCake: Save download (Mac): '+server.url);
+   });
+  })());
+ }
  async function select(index,{raw=false}={}){
   check(started&&!stopping&&!selected&&status===protocol.STATES.catalog&&
    Number.isInteger(index)&&index>=0&&index<games.length,
@@ -226,11 +281,12 @@ function create({rpc,menu,gpu,app,directory,root,runDirectory,sourceSession,
    track((async()=>{
     await previous;if(stopping)return;
     const target=chosen.navigation;
-    const returnFocus=target==='root'?Math.max(0,catalogs.root.findIndex(entry=>view==='parts'?entry.titleId===partTitle:entry.navigation==='system')):1;
+    const returnFocus=target==='root'?Math.max(0,catalogs.root.findIndex(entry=>view==='saves'?entry.titleId===saveTitle:view==='parts'?entry.titleId===partTitle:entry.navigation==='system')):1;
     await showCatalog(target,returnFocus);selected=false;
    })());
    return;
   }
+  if(chosen.saveArchive)return exportSave(chosen);
   if(!raw&&!chosen.exportPart&&largeTitles.has(chosen.titleId)){
    selected=true;const previous=task;track((async()=>{await previous;if(stopping)return;await showParts(chosen);selected=false;})());return;
   }
@@ -367,6 +423,9 @@ function create({rpc,menu,gpu,app,directory,root,runDirectory,sourceSession,
   })();
   return closing;
  }
- return {start,select,selectRaw:index=>select(index,{raw:true}),back,close,get report(){return {...report};}};
+ // The existing launcher forwards bit 31 to selectRaw. Bit 30 selects saves,
+ // allowing this app to update inside an already running MistBrew session.
+ const selectRaw=index=>index>=0x40000000?selectSaves(index-0x40000000):select(index,{raw:true});
+ return {start,select,selectRaw,selectSaves,back,close,get report(){return {...report};}};
 }
 module.exports={create,ipv4};

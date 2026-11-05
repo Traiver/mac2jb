@@ -9,7 +9,8 @@ const TILE_BYTES=TILE_WIDTH*TILE_HEIGHT/4;
 const STORAGE_BYTES=16*1024*1024;
 const STATES=Object.freeze({reading:0,catalog:1,preparing:2,running:3,error:4,closing:5});
 
-function header(state,count=0,message='',generation=0,parent=false,focus=0,title=false){
+function header(state,count=0,message='',generation=0,parent=false,focus=0,title=false,saves=0){
+ if(![0,1,2].includes(saves))throw Error('Invalid OunceCake save menu mode');
  if(!Number.isInteger(generation)||generation<0||generation>0xffffffff||typeof parent!=='boolean'||typeof title!=='boolean'||
   !Number.isInteger(focus)||focus<0||focus>MAX_GAMES)throw Error('Invalid OunceCake catalog navigation');
  if(!Object.values(STATES).includes(state)||!Number.isInteger(count)||count<0||count>MAX_GAMES)
@@ -19,6 +20,7 @@ function header(state,count=0,message='',generation=0,parent=false,focus=0,title
  data.writeUInt32LE(MAGIC,0);data.writeUInt32LE(state,4);data.writeUInt32LE(count,8);
  data.writeUInt32LE(generation,12);data.writeUInt32LE(parent?1:0,20);data.writeUInt32LE(focus,24);
  data.writeUInt32LE(title?1:0,28);
+ data.writeUInt32LE(saves,32);
  data.writeUInt32LE(ascii.length,16);ascii.copy(data,128);
  return data;
 }

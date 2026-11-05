@@ -56,7 +56,7 @@ test('console FTP address is taken only from qualified Switch network state',()=
  assert.equal(value.subarray(128,128+value.readUInt32LE(16)).toString(),'http://192.0.2.20:8080/');
 });
 
-function fixture(t,{serverStopError,handleCloseError,detachError,prepareGame,exportsEngine,preparationTimeoutMs,realRaster=false,reuseDirectory,deployError,rasterRows}={}){
+function fixture(t,{serverStopError,handleCloseError,detachError,prepareGame,exportsEngine,saveTools,saveServer,preparationTimeoutMs,realRaster=false,reuseDirectory,deployError,rasterRows}={}){
  const directory=reuseDirectory||fs.mkdtempSync(path.join(os.tmpdir(),'mac2jb-ouncecake-service-'));
  t.after(()=>fs.rmSync(directory,{recursive:true,force:true}));
  const events={attach:0,detach:0,deployed:0,stopped:0,mounted:0,closed:[],order:[],fatal:[],writes:[]};
@@ -88,7 +88,7 @@ function fixture(t,{serverStopError,handleCloseError,detachError,prepareGame,exp
  if(exportsEngine)modules.exports=exportsEngine;
  const instance=service.create({rpc,menu,gpu:{fingerprint:'abc',privateStorage:{mapped,bytes:protocol.STORAGE_BYTES}},
   app:{id:'ouncecake',fingerprint:'abc',manifest:{service:'ouncecake-v1'}},directory,root,
-  runDirectory:'/run/switch-test',sourceSession:'switch-test',modules,preparationTimeoutMs,
+  runDirectory:'/run/switch-test',sourceSession:'switch-test',modules,saveTools,saveServer,preparationTimeoutMs,
   liveCheck:async()=>true,
   verifyHeld:async()=>({run:{directory:'/run/switch-test',proof:{session:'switch-test'},
    connection:{addresses:{session:'switch-test'}}},snapshot:{image:Buffer.from('native'),nativeImageSha256:'abc'}}),
@@ -414,4 +414,55 @@ test('combined installed view of compacted Base and Update is visibly identified
  const header=events.writes.filter(x=>x.bytes.length===protocol.HEADER_BYTES).at(-1).bytes;
  assert.ok(header.subarray(128,128+header.readUInt32LE(16)).toString().startsWith('COMBINED HTTP://'));
  assert.equal(instance.report.exportInfo.merged,true);await instance.close();
+});
+
+
+const saveArchive={id:'12',space:1,type:1,rank:0,index:0,uid:'0'.repeat(32),titleId:'0100000000000001',size:'16'};
+function saveFixture(t,{inventoryError,snapshotError,startError,pending}={}){
+ const saveEvents={copied:0,started:0,closed:0};
+ const saveTools={label:()=> 'Shared / Account / NAND / Index 0',
+  async inventory({attachment}){attachment.s.handles.add(301);if(inventoryError)throw inventoryError;return [saveArchive];},
+  async snapshot({attachment,shouldStop}){saveEvents.copied++;attachment.s.handles.add(302);
+   if(pending){await pending;assert.equal(shouldStop(),true);throw Object.assign(Error('cancelled'),{code:'FTP_CANCELLED'});}
+   if(snapshotError)throw snapshotError;return {folder:'/backup/test',manifest:{files:2,bytes:8}};}};
+ const saveServer={hostAddress:()=> '192.0.2.1',async start(){saveEvents.started++;if(startError)throw startError;
+  return {kind:'local-save',url:'http://192.0.2.1:12345/abcd/',async close(){saveEvents.closed++;return {localStopped:true,connectionsClosed:true};}};}};
+ return {...fixture(t,{saveTools,saveServer}),saveEvents};
+}
+test('Y Saves opens exact archive choices and local backup download, then returns without a new exploit',async t=>{
+ const {instance,events,saveEvents}=saveFixture(t);await instance.start();await waitFor(()=>instance.report.status,'catalog');
+ await instance.selectRaw(0x40000000);await waitFor(()=>instance.report.catalogView,'saves');await waitFor(()=>instance.report.status,'catalog');
+ assert.ok(events.closed.includes(301));
+ const header=events.writes.filter(x=>x.bytes.length===protocol.HEADER_BYTES).at(-1).bytes;assert.equal(header.readUInt32LE(32),2);
+ await instance.select(1);await waitFor(()=>instance.report.status,'running');
+ assert.equal(instance.report.exportKind,'save-data');assert.equal(instance.report.saveBackup.files,2);
+ assert.equal(instance.report.httpURL,'http://192.0.2.1:12345/abcd/');assert.equal(events.deployed,0);
+ assert.ok(events.closed.includes(302));assert.equal(saveEvents.copied,1);
+ await instance.back();await waitFor(()=>instance.report.status,'catalog');assert.equal(saveEvents.closed,1);
+ await instance.back();await waitFor(()=>instance.report.catalogView,'root');await waitFor(()=>instance.report.status,'catalog');
+ await instance.select(0);await waitFor(()=>instance.report.status,'running');assert.equal(events.deployed,1);assert.equal(events.attach,1);
+ await instance.close();assert.equal(events.detach,1);
+});
+test('save inventory, copy and download failures recover to the list without raw NCA fallback',async t=>{
+ for(const failure of [{inventoryError:Error('No archive access')},{snapshotError:Error('Short save read')},{startError:Error('Port unavailable')}]){
+  const {instance,events}=saveFixture(t,failure);await instance.start();await waitFor(()=>instance.report.status,'catalog');
+  await instance.selectSaves(0);
+  if(!failure.inventoryError){await waitFor(()=>instance.report.catalogView,'saves');await waitFor(()=>instance.report.status,'catalog');await instance.select(1);}
+  await waitFor(()=>Boolean(instance.report.error),true);await waitFor(()=>instance.report.status,'catalog');
+  assert.equal(events.mounted,0);assert.equal(events.deployed,0);assert.equal(events.fatal.length,0);await instance.close();
+ }
+});
+test('closing OunceCake waits for save cancellation before releasing its attachment',async t=>{
+ let resolve;const pending=new Promise(r=>{resolve=r;});const {instance,events,saveEvents}=saveFixture(t,{pending});
+ await instance.start();await waitFor(()=>instance.report.status,'catalog');await instance.selectSaves(0);
+ await waitFor(()=>instance.report.catalogView,'saves');await waitFor(()=>instance.report.status,'catalog');await instance.select(1);
+ await waitFor(()=>saveEvents.copied,1);const close=instance.close();assert.equal(events.detach,0);resolve();await close;
+ assert.equal(saveEvents.started,0);assert.equal(events.detach,1);assert.ok(events.closed.includes(302));
+});
+test('unsafe save cleanup retains resources and calls the fatal handler',async t=>{
+ const error=Object.assign(Error('save handle close failed'),{cleanupBlocked:true});
+ const {instance,events}=saveFixture(t,{snapshotError:error});await instance.start();await waitFor(()=>instance.report.status,'catalog');
+ await instance.selectSaves(0);await waitFor(()=>instance.report.catalogView,'saves');await waitFor(()=>instance.report.status,'catalog');
+ await instance.select(1);await waitFor(()=>instance.report.cleanupBlocked,true);await assert.rejects(instance.close(),/save handle close/);
+ assert.equal(events.detach,0);assert.equal(events.fatal.length,1);
 });

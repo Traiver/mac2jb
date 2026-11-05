@@ -36,7 +36,7 @@ def shorten(draw, value, face):
     return value[:lo] + '…'
 
 def row_label(game, number):
-    suffix = f' [{game["titleId"]}]' if game.get('titleId') and not game.get('exportPart') and game.get('kind') != 'firmware-nca' else ''
+    suffix = f' [{game["titleId"]}]' if game.get('titleId') and not game.get('exportPart') and not game.get('saveArchive') and game.get('kind') != 'firmware-nca' else ''
     prefix = game['name'] if game.get('heading') else f'{number}. {game["name"]}'
     return prefix, suffix
 
