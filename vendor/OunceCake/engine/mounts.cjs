@@ -718,8 +718,18 @@ async function prepareGame({ attachment: a, title, baseOnly = false, part, expor
       ][contentType];
       for (const section of sections) {
         if(!includeSection(part,category,contentType,section))continue;
-        const mounted = await mountView(path, section, choices,
-          contentType === 1 && (section === 'romfs' || section === 'exefs' || section === 'logo'));
+        let mounted;
+        try {
+          mounted = await mountView(path, section, choices,
+            contentType === 1 && (section === 'romfs' || section === 'exefs' || section === 'logo'));
+        } catch (error) {
+          // files.open proved cleanup; retain readable sections and report the missing manual.
+          if (section !== 'manual' || error.code !== 'GAME_ORIGINAL_CONTENT_REQUIRED' ||
+              error.cleanupBlocked || error instanceof AggregateError || a.s.threads.size) throw error;
+          cancelled();
+          sectionIssues.push({path:path+'/'+section,status:'unavailable',code:error.code,message:error.message});
+          continue;
+        }
         choices = choices.filter(candidate => candidate.storage === mounted.source.storage);
       }
     }
@@ -837,7 +847,7 @@ async function prepareGame({ attachment: a, title, baseOnly = false, part, expor
     }
   }
 
-  const exportInfo = { kind: 'game', baseCompacted: compactedBase, merged: part === 'update' && compactedBase, partial: sectionIssues.some(item => item.status === 'invalid'),
+  const exportInfo = { kind: 'game', baseCompacted: compactedBase, merged: part === 'update' && compactedBase, partial: sectionIssues.some(item => ['invalid','unavailable'].includes(item.status)),
     sections: [...views.map(view => ({ path: view.path, status: 'available', entries: view.entries.length })),
       ...sectionIssues] };
   if(!sources.length)throw Object.assign(Error(part === 'base'

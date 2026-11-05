@@ -1,5 +1,9 @@
 # Changelog
 
+## mac2jb v0.7.4 — 2026-11-05
+
+- Hotfix: keep readable OunceCake exports when update manuals cannot mount, and clarify partial-export and license diagnostics.
+
 ## mac2jb v0.7.3 — 2026-11-05
 
 - Merge upstream v0.7.3: Cellenseres host, guided setup, USB discovery and bootstrap ETA.

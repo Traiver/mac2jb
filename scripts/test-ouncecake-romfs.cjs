@@ -69,7 +69,7 @@ test('normal whole-title exports keep strict RomFS validation',async()=>{
  assert.equal(closed,false);
 });
 
-function baseFixture({exefsAbsent=false,closeFails=false,compacted=false,codeResult=0}={}){
+function baseFixture({exefsAbsent=false,closeFails=false,compacted=false,codeResult=0,manualError}={}){
  const fs=require('node:fs'),path=require('node:path'),Module=require('node:module');
  const file=path.resolve(__dirname,'../vendor/OunceCake/engine/mounts.cjs');
  const loaded=new Module(file,module);loaded.filename=file;loaded.paths=module.paths;
@@ -77,8 +77,9 @@ function baseFixture({exefsAbsent=false,closeFails=false,compacted=false,codeRes
  const row={compacted,metadataAttributes:compacted?4:0,installType:0,storage:4,contentTitle:'0100000000000001',version:0,contents:[{contentType:1,programIndex:0}]};
  const source={...row,contentType:1,programIndex:0,contentId,metaKey,
   runtimeProgramId:row.contentTitle,contentPath:'@UserContent://registered/program.nca',attributes:0};
+ if(manualError)row.contents.push({contentType:4,programIndex:0});
  const protocol=require('../vendor/OunceCake/engine/protocol.cjs');
- const content={discoverBase:async()=>[row],discoverUpdates:async()=>[],discoverDlc:async()=>[],discoverDataPatches:async()=>[],resolveContent:async()=>source};
+ const content={discoverBase:async()=>[row],discoverUpdates:async()=>[],discoverDlc:async()=>[],discoverDataPatches:async()=>[],resolveContent:async({content})=>({...source,contentType:content.contentType})};
  loaded.require=name=>name==='./content.cjs'?content:name==='./program.cjs'?{
   createProgramMounts:()=>({openCode:async args=>{
    assert.equal(args.exactSource,!compacted);
@@ -100,9 +101,11 @@ function baseFixture({exefsAbsent=false,closeFails=false,compacted=false,codeRes
    if(label==='Server pin source content')return {result:0,data:Buffer.from(contentId,'hex')};
    assert.fail('Unexpected IPC '+label);
   }},root:1,domain:{oneHandle:r=>r.handle,async send(s,label){
+   if(label==='Open game logo')throw protocol.resultError(label,0x7d202);
+   if(label==='Open game manual')throw manualError;
    assert.equal(label,'OpenDataStorageByPath');order.push('romfs');handles.add(11);return {result:0,handle:11};
   }},service:async()=>20,filesystem:{
-   async readStorage(s,h,o,n){assert.equal(h,11);return Buffer.alloc(n);},
+   async readStorage(s,h,o,n){assert.equal(h,11);return manualError?emptyRomfs().subarray(o,o+n):Buffer.alloc(n);},
    async pathMethod(){handles.add(13);return {result:0,handle:13};},
    async verifiedBytes(){const b=Buffer.alloc(0x310);b.write('main');b[0x304]=1;b.writeBigUInt64LE(123n,0x308);return b;}
   }};
@@ -149,4 +152,18 @@ test('unreadable compacted Base retains the real ExeFS result and RomFS evidence
   assert.equal(error.cause.nativeResult.canonical,0x244802);
   assert.ok(error.exportInfo.sections.some(s=>s.path==='/base/romfs'&&s.status==='invalid'));return true;
  });
+});
+
+test('unsupported original-content manual preserves readable sections and marks export partial',async()=>{
+ const f=baseFixture({manualError:Object.assign(Error('Manual requires original-content mount'),{code:'GAME_ORIGINAL_CONTENT_REQUIRED'})});
+ const result=await f.prepare({});
+ assert.equal(result.exportInfo.partial,true);
+ assert.ok(result.exportInfo.sections.some(s=>s.path==='/base/manual'&&s.status==='unavailable'&&s.code==='GAME_ORIGINAL_CONTENT_REQUIRED'));
+ assert.ok(result.exportInfo.sections.some(s=>s.path==='/base/exefs'&&s.status==='available'));
+});
+
+test('manual cleanup or transport failure still aborts instead of reporting partial success',async()=>{
+ for(const error of [Object.assign(Error('close failed'),{code:'GAME_ORIGINAL_CONTENT_REQUIRED',cleanupBlocked:true}),Error('Network failure')]){
+  const f=baseFixture({manualError:error});await assert.rejects(f.prepare({}),failure=>failure===error);
+ }
 });

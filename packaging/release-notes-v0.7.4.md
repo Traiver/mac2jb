@@ -1,0 +1,1 @@
+- Hotfix: keep readable OunceCake exports when update manuals cannot mount, and clarify partial-export and license diagnostics.
