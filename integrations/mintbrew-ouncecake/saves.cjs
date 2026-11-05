@@ -58,7 +58,7 @@ async function inventory({attachment,titleId,shouldStop=()=>false}){
  check(archives.length<=990,'Too many save archives to display');
  return archives.sort((a,b)=>a.uid.localeCompare(b.uid)||a.type-b.type||a.index-b.index||a.rank-b.rank||a.space-b.space);
 }
-function label(a){return (a.uid==='0'.repeat(32)?'Shared':'User '+a.uid)+' / '+TYPES[a.type]+
+function label(a){return (a.uid==='0'.repeat(32)?'Shared':a.userName?a.userName+(a.duplicateName?' ['+a.uid+']':''):'User '+a.uid)+' / '+TYPES[a.type]+
  ' / '+(a.space===1?'NAND':'SD')+' / Index '+a.index+(a.rank?' / Secondary':'');}
 async function hashFile(file){
  const handle=await fs.open(file,'r'),hash=crypto.createHash('sha256');
@@ -128,4 +128,5 @@ async function snapshot({attachment,archive,directory,shouldStop=()=>false,onPro
  }catch(error){complete=false;throw error;}
  finally{if(folder&&!complete)await fs.rm(folder,{recursive:true,force:true});}
 }
-module.exports={inventory,snapshot,label,parseRecord,validateArchive,identity,safeName,hashFile};
+module.exports={inventory,snapshot,label,parseRecord,validateArchive,identity,safeName,hashFile,
+ withProfiles:require('./save-profiles.cjs').decorate};

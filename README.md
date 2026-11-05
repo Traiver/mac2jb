@@ -375,11 +375,14 @@ It is hidden when all entries fit on one page. Connect to the displayed HTTP/Web
 with a browser or WinSCP (WebDAV, no TLS or credentials).
 
 To export save data, close the game, highlight it in OunceCake and press **Y Saves**.
-Choose the exact user ID and archive (Account, shared Device, BCAT or Cache), then
+Choose the profile name and archive (Account, shared Device, BCAT or Cache), then
 press **A**. OunceCake opens the selected archive read-only, copies every file to
 a private Mac backup and verifies its SHA-256 checksums. The download is enabled
 only after copying and native-handle cleanup have completed. No save files are
 written or committed on the console; restore/import is not part of this feature.
+Profile names are read from the console and matched to the complete raw user ID.
+Identical names include their IDs to distinguish them; unavailable names fall
+back to the user ID. Shared archives remain labelled `Shared`.
 
 Save downloads use the **Mac address displayed on the Switch**, fixed port **8081**
 and the root path **/**, for example `http://192.168.1.10:8081/`. In WinSCP choose

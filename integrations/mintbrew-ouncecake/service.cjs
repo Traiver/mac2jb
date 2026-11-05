@@ -239,7 +239,8 @@ function create({rpc,menu,gpu,app,directory,root,runDirectory,sourceSession,
    await saveOperation(async()=>{
     await renderTitle(entry);await publish(protocol.STATES.preparing,'Reading save archives. The game must be closed.');
     check(await live(),'The held RPC session ended before save enumeration');
-    const archives=await runPreparation(shouldStop=>saveTools.inventory({attachment,titleId:entry.titleId,shouldStop}),
+    const archives=await runPreparation(async shouldStop=>saveTools.withProfiles({attachment,
+     archives:await saveTools.inventory({attachment,titleId:entry.titleId,shouldStop}),shouldStop,onProgress}),
      {timeoutMs:preparationTimeoutMs,shouldStop:()=>stopping,onProgress});
     await releaseSelectedHandles();if(stopping)return;
     if(!archives.length){selected=false;await publish(protocol.STATES.catalog,'No save archives found for this game.');return;}

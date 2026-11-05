@@ -420,7 +420,7 @@ test('combined installed view of compacted Base and Update is visibly identified
 const saveArchive={id:'12',space:1,type:1,rank:0,index:0,uid:'0'.repeat(32),titleId:'0100000000000001',size:'16'};
 function saveFixture(t,{inventoryError,snapshotError,startError,pending}={}){
  const saveEvents={copied:0,started:0,closed:0};
- const saveTools={label:()=> 'Shared / Account / NAND / Index 0',
+ const saveTools={label:()=> 'Shared / Account / NAND / Index 0',async withProfiles({archives}){return archives;},
   async inventory({attachment}){attachment.s.handles.add(301);if(inventoryError)throw inventoryError;return [saveArchive];},
   async snapshot({attachment,shouldStop}){saveEvents.copied++;attachment.s.handles.add(302);
    if(pending){await pending;assert.equal(shouldStop(),true);throw Object.assign(Error('cancelled'),{code:'FTP_CANCELLED'});}
