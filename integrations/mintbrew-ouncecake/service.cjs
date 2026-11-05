@@ -234,7 +234,7 @@ function create({rpc,menu,gpu,app,directory,root,runDirectory,sourceSession,
   if(!raw&&!chosen.exportPart&&largeTitles.has(chosen.titleId)){
    selected=true;const previous=task;track((async()=>{await previous;if(stopping)return;await showParts(chosen);selected=false;})());return;
   }
-  selected=true;report.titleId=games[index].titleId;report.exportKind=games[index].kind||'game';delete report.error;delete report.romfsDiagnostic;delete report.rawFallbackReason;delete report.exportInfo;delete report.allocationFailure;
+  selected=true;report.titleId=games[index].titleId;report.exportKind=games[index].kind||'game';delete report.error;delete report.romfsDiagnostic;delete report.rawFallbackReason;delete report.rawFallbackCode;delete report.exportInfo;delete report.allocationFailure;
   const selectedTitle=games[index].titleName||games[index].name;
   await renderTitle(games[index]);
   await publish(protocol.STATES.preparing,'Preparing export'+(games[index].kind==='firmware-nca'?'':' ['+games[index].titleId+']'));
@@ -301,8 +301,15 @@ function create({rpc,menu,gpu,app,directory,root,runDirectory,sourceSession,
      // The failed operation has settled. Prove partial-view cleanup before opening raw storage.
      await releaseSelectedHandles();
      raw=true;report.rawFallbackReason=error.message;
-     onProgress('OunceCake: No usable ELicense; serving original encrypted NCAs instead.');
-     await publish(protocol.STATES.preparing,'No usable ELicense. Preparing original encrypted NCAs.');
+     let reason=error;while(reason.cause)reason=reason.cause;
+     report.rawFallbackCode=reason.code||null;
+     onProgress('OunceCake: Raw NCA fallback: '+JSON.stringify({titleId:entry.titleId,code:reason.code||null,message:error.message,source:reason.source||error.source||null}));
+     const message=reason.code==='GAME_ORIGINAL_CONTENT_REQUIRED'
+      ?'Original-content mount required. Preparing original encrypted NCAs.'
+      :reason.code==='MISSING_ELICENSE'?'No installed ELicense. Preparing original encrypted NCAs.'
+      :reason.code==='ELICENSE_UNUSABLE'?'Installed ELicense not usable. Preparing original encrypted NCAs.'
+      :'Content rights preparation failed. Preparing original encrypted NCAs.';
+     await publish(protocol.STATES.preparing,message);
      try{prepared=await prepare(true);}catch(rawError){await recover(rawError);return;}
     }else{await recover(error);return;}
    }

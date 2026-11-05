@@ -110,6 +110,11 @@
       "date": "2026-11-05",
       "file": "engine/content.cjs, engine/mounts.cjs",
       "description": "Retain NCM installation type, Compacted metadata flag and 40-bit content sizes. Offer scoped exports before attempting a compacted Base alone; retain explicit partial Base attempts, avoid the failed Base resolver retry for compacted sources, and identify the composed installed Update view."
+    },
+    {
+      "date": "2026-11-05",
+      "file": "engine/mounts.cjs",
+      "description": "Retain readable program sections as an explicitly partial export when an unsupported original-content manual cannot mount; propagate cancellation, cleanup and transport failures."
     }
   ],
   "httpBase": {

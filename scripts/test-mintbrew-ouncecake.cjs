@@ -247,6 +247,13 @@ test('license fallback proves partial cleanup before raw export and keeps the HT
  const {instance,events}=fixture(t,{exportsEngine});await instance.start();await waitFor(()=>instance.report.status,'catalog');await instance.select(0);await waitFor(()=>instance.report.status,'running');
  assert.equal(attempts,1);assert.equal(instance.report.exportKind,'game-nca');assert.equal(instance.report.exportInfo.encrypted,true);assert.equal(instance.report.httpURL,'http://192.0.2.20:8080/');assert.equal(events.fatal.length,0);await instance.close();
 });
+test('original-content fallback records the real cause without misreporting a missing license',async t=>{
+ let closed,attempts=0;const exportsEngine={async discoverExports(){return [{title:'0400486024dec000',name:'Preload',storages:[4]}];},prepareTitleNcas(){},
+  async prepareExport({attachment,raw}){if(!raw){attachment.s.handles.add(101);throw Object.assign(Error('Content requires an original-content mount'),{code:'GAME_ORIGINAL_CONTENT_REQUIRED'});}
+   assert.equal(attachment.s.handles.has(101),false);attempts++;return {index:Buffer.alloc(64),sources:[{handle:7}],exportInfo:{kind:'game-nca',encrypted:true}};}};
+ const {instance,events}=fixture(t,{exportsEngine});await instance.start();await waitFor(()=>instance.report.status,'catalog');await instance.select(0);await waitFor(()=>instance.report.status,'running');
+ assert.equal(instance.report.rawFallbackCode,'GAME_ORIGINAL_CONTENT_REQUIRED');assert.equal(instance.report.rawFallbackReason,'Content requires an original-content mount');assert.equal(attempts,1);assert.equal(instance.report.exportKind,'game-nca');assert.equal(instance.report.exportInfo.encrypted,true);assert.equal(instance.report.httpURL,'http://192.0.2.20:8080/');assert.equal(events.fatal.length,0);await instance.close();
+});
 test('explicit X/raw selection skips license preparation',async t=>{
  const exportsEngine={async discoverExports(){return [{title:'0400486024dec000',name:'Preload',storages:[4]}];},async prepareExport({raw}){assert.equal(raw,true);return {index:Buffer.alloc(64),sources:[{handle:7}],exportInfo:{kind:'game-nca'}};}};
  const {instance}=fixture(t,{exportsEngine});await instance.start();await waitFor(()=>instance.report.status,'catalog');await instance.selectRaw(0);await waitFor(()=>instance.report.status,'running');assert.equal(instance.report.exportKind,'game-nca');await instance.close();
