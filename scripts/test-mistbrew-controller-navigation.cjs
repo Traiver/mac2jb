@@ -5,11 +5,25 @@ const os=require('node:os'),path=require('node:path'),{execFileSync}=require('no
 test('controller can focus Refresh and confirm it without launching an app',t=>{
  const directory=fs.mkdtempSync(path.join(os.tmpdir(),'mistbrew-navigation-'));t.after(()=>fs.rmSync(directory,{recursive:true,force:true}));
  const helper=fs.readFileSync(path.join(__dirname,'../vendor/MintBrew/homebrew-launcher/shaders/launcher-navigation.glsl'),'utf8').replace(/inout uint (\w+)/g,'uint &$1');
+ const cases=require('../vendor/MintBrew/homebrew-launcher/launcher-check-cases.cjs');
+ const navCases=cases.filter(c=>!c.touch&&!c.pointer&&!c.rightStick&&!(c.buttons&1)&&(!c.steps||c.steps<=20));
+ const fixtures=navCases.map(c=>{
+  const count=c.count??3,selection=count?Math.min(c.selection,count-1):0,focus=count?(c.refreshFocus||0):1;
+  const pressed=(c.buttons||0)&~(c.previous||0);
+  const direction=pressed&(1<<13)?-1:pressed&(1<<15)?1:Math.abs(c.stick||0)>18021&&!c.cooldown?((c.stick||0)>0?-1:1):0;
+  return `{uint selected=${selection}u,focus=${focus}u;const uint previous=selected,previousFocus=focus;
+   if(${c.connected!==false&&!c.modal?'true':'false'})mistNavigate(${count}u,${direction},${!!(pressed&(1<<14))},${!!(pressed&(1<<12))},${!!(pressed&2)},selected,focus);
+   assert(selected==${c.want}u);
+   ${c.wantFocus===undefined?'':`assert(focus==${c.wantFocus}u);`}
+   ${c.wantTicks===undefined?'':`assert(uint(selected!=previous||focus!=previousFocus)==${c.wantTicks}u);`}
+  }`;
+ }).join('\n');
  const source=`#include <algorithm>
 #include <cassert>
 using uint=unsigned;using std::min;
 ${helper}
 int main(){
+ ${fixtures}
  for(uint count: {0u,1u,4u,32u}){
   uint selection=0,refresh=0;
   mistNavigate(count,-1,false,false,false,selection,refresh);
