@@ -103,6 +103,7 @@ bash scripts/test-artemis-http.sh
 "$NODE_BINARY" --test scripts/test-savekit-title-names.cjs
 "$NODE_BINARY" --test scripts/test-seedsow-held-session.cjs
 "$NODE_BINARY" --test scripts/test-custom-rpc-package.cjs scripts/test-gui-homebrew.cjs
+"$NODE_BINARY" --test scripts/test-mistbrew-controller-navigation.cjs
 "$NODE_BINARY" scripts/check-savekit-research.cjs
 "$NODE_BINARY" integrations/super-file-bros/read-only-export.cjs --self-test
 "$NODE_BINARY" --test scripts/test-super-file-bros.cjs integrations/mintbrew-native/contract.test.cjs

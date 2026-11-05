@@ -344,6 +344,12 @@ probe, Hello World and a CHIP-8 test emulator. add or remove compatible gpu apps
 while it is open, then refresh the list on the Switch. hold B or Minus to return
 from a running app and choose another in the same held rpc session.
 
+Use **Up** above the first app or **Right** on the D-pad to focus the Refresh
+button, then press **A**. Its ice-blue outline shows focus. **Down** returns to
+the first app; **Left** or **B** returns to the previously selected app. The left
+stick also moves vertically through the apps and Refresh. With the right-stick
+pointer, hovering Refresh and pressing A works as well.
+
 DOOM is a GPU POC based on PureDOOM, bundled with DOOM shareware v1.9 (Episode 1).
 
 ftpd-sb shares SmileBASIC's `/save` and `/tmp` files with read/write access

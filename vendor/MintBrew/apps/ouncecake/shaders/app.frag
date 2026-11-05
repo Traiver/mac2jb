@@ -75,7 +75,7 @@ void main(){
    col=mix(col,mist,fill(thumb)*.9);
    col+=mist*exp(-max(thumb,0.0)/6.0)*.025;
   }
-  col=mix(col,muted,text(p,vec2(200,961),TEXT_SELECT));
+  col=mix(col,muted,text(p,vec2(200,961),payload.words[8]==2u?TEXT_SAVE_SELECT:payload.words[8]==1u?TEXT_GAME_SELECT:TEXT_SELECT));
  }else{
   if(payload.words[7]!=0u)col=mix(col,ink,titlePixel(p,vec2(195,270),1001u));
   ivec4 label=status==2u?TEXT_PREPARING:status==3u?TEXT_READY:status==4u?TEXT_ERROR:status==5u?TEXT_CLOSING:TEXT_DISCOVER;

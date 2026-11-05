@@ -39,8 +39,11 @@ void main(){
  col=mix(col,ink,text(p,vec2(158,112),TEXT_TITLE));
  col=mix(col,muted,text(p,vec2(164,187),TEXT_SUBTITLE));
  vec2 refresh=p-vec2(1660,179);
- col=mix(col,panel,fill(length(refresh)-62.0));
- col=mix(col,border,line(length(refresh)-62.0,1.2));
+ float refreshFocus=c.game.z!=0u?1.0:0.0;
+ float refreshPulse=.5+.5*sin(t*2.8);
+ col+=mist*exp(-max(length(refresh)-62.0,0.0)/18.0)*refreshFocus*.11;
+ col=mix(col,mix(panel,vec3(.11,.19,.29),refreshFocus),fill(length(refresh)-62.0));
+ col=mix(col,mix(border,mist,refreshFocus),line(length(refresh)-62.0,1.2+refreshFocus*(.7+.45*refreshPulse)));
  float turn=c.refresh.y;
  vec2 arrow=mat2(cos(turn),-sin(turn),sin(turn),cos(turn))*refresh;
  float arc=line(length(arrow)-31.0,2.7)*smoothstep(-2.5,-2.42,atan(arrow.y,arrow.x));
@@ -53,7 +56,7 @@ void main(){
   uint index=first+uint(i);if(index>=count||p.y<350.0||p.y>950.0)continue;
   bool installed=index<c.reserved.w;
   float y=424.0+(float(index)-c.transition.w)*151.0;
-  float selected=c.state.x==index?1.0:0.0;
+  float selected=c.game.z==0u&&c.state.x==index?1.0:0.0;
   float d=box(p,vec2(960,y),vec2(660,62),18.0);
   float pulse=.5+.5*sin(t*2.8);
   float aura=exp(-max(d,0.0)/18.0)*selected*(.075+.065*pulse);
