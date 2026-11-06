@@ -1,20 +1,14 @@
 # mac2jb MistBrew fork
 
 my fork of [cpypwn/mac2jb](https://github.com/cpypwn/mac2jb), an all-in-one
-Switch 2 jailbreaking tool for Mac. Includes upstream changes through `51498e4` (v0.7.3); this fork adds
-OunceCake save backups, system-title, elicense title & original NCA exports.
-See [CHANGELOG.md](CHANGELOG.md) for details.
+Switch 2 jailbreaking tool for Mac.
 
 ## fork highlights
 
 - OunceCake now uses http instead of ftp
-- export all console game saves and BCAT archives, including uninstalled games,
-  with profile names and read-only HTTP/WebDAV downloads.
-- export extracted system-title files, elicense titles like GameCube NSO or original registered firmware NCAs.
-- download original installed title NCAs without preparing an ELicense; missing
-  or unusable licenses can fall back to the encrypted export after safe cleanup.
-- reopen OunceCake within a healthy held RPC session, with bounded preparation
-  and lower HTTP server memory usage. A broken transport still requires restart.
+- export extracted firmwares, system titles, games, savegames and more
+- supports ELicense titles like NSO GC
+- redesigned app and overall enhanced user experience
 
 ## what you need
 
@@ -613,30 +607,27 @@ use the console and session logs to investigate failures. for support, join the 
 ## credits
 
 - [cpypwn](https://github.com/cpypwn) — [mac2jb](https://github.com/cpypwn/mac2jb), the original macOS application and build workflow.
-- [Cellenseres](https://github.com/Cellenseres) — [OunceCake](https://github.com/Cellenseres/OunceCake), the default ns2jb host, native installed ELicense contexts and the HTTP/WebDAV implementation used by this fork.
-
+- [Gezine](https://github.com/Gezine) — [CivSwitch](https://github.com/Gezine/CivSwitch), the Civilization VII chat entry point, payload and USB macro adapted for the Mac flow.
 - [pepsipu](https://gitlab.com/pepsipu) — [ns2jb](https://gitlab.com/pepsipu/ns2jb), the original Switch 2 exploit and filesystem research.
-- [kurumuz](https://gitlab.com/kurumuz) — [ns2jb](https://gitlab.com/kurumuz/ns2jb), a host with compatibility updates, microSD Express update support and demo support.
+- [kurumuz](https://gitlab.com/kurumuz) — [ns2jb](https://gitlab.com/kurumuz/ns2jb), compatibility updates, microSD Express update support and demo support.
 - [BermTheSequel](https://gitlab.com/BermTheSequel) — [ns2jb2](https://gitlab.com/BermTheSequel/ns2jb2), demo support.
 - [shinyquagsire](https://github.com/shinyquagsire23) — [libusbd](https://github.com/shinyquagsire23/libusbd) and [macos_usb_gadget_poc](https://github.com/shinyquagsire23/macos_usb_gadget_poc), usb device emulation and macOS gadget-driver work.
-- [misshexa66](https://github.com/misshexa66) — [OunceCake](https://github.com/misshexa66/OunceCake), game-content export.
-- [ravensclawx](https://github.com/ravensclawx) — [HBLauncher](https://github.com/ravensclawx/HBLauncher), the SmileBASIC gpu app launcher and sdk, and [ftpd-sb](https://github.com/ravensclawx/ftpd-sb), bundled with MistBrew and the base for the MintFTP prototype.
+- [duszmox](https://github.com/duszmox) — [PR #11](https://github.com/cpypwn/mac2jb/pull/11), automatic USB controller discovery through the IORegistry.
+- [misshexa66](https://github.com/misshexa66) — the original [OunceCake](https://github.com/misshexa66/OunceCake), game-content export.
+- [alula](https://github.com/alula) — [switch-artemis-launcher](https://github.com/alula/switch-artemis-launcher), the Seedsow and Nora save launchers and HTTP interface.
+- [smarkyie](https://github.com/smarkyie) — [NSP-Box](https://github.com/smarkyie/NSP-Box), the extracted-snapshot packager adapted for Mac.
+- [a55uka](https://github.com/a55uka) — [nup](https://github.com/a55uka/nup), the NUP format and reference tool fetched on request.
+- [Cellenseres](https://github.com/Cellenseres) — the default [ns2jb host](https://github.com/Cellenseres/ns2jb) with retained rpc and native IPC handling, and the updated [OunceCake fork](https://github.com/Cellenseres/OunceCake) for read-only HTTP and WebDAV game browsing.
+- [ravensclawx](https://github.com/ravensclawx) — [HBLauncher](https://github.com/ravensclawx/HBLauncher), the SmileBASIC gpu app launcher and sdk, and [ftpd-sb](https://github.com/ravensclawx/ftpd-sb), bundled with MintBrew and the base for the MintFTP prototype.
 - [niftynova](https://github.com/NiftyNova) — [gpubrewlauncher](https://github.com/NiftyNova/GPUBrewLauncher), the updated gpu app launcher.
-- [byizmysh](https://github.com/byizmysh) — [IZ2S Platform](https://github.com/byizmysh/IZ2S-Platform), [BlitBun](https://github.com/byizmysh/BlitBun), [VacooTube](https://github.com/byizmysh/VacooTube) and [IZDOOM](https://github.com/byizmysh/IZDOOM). mac2jb includes DOOM in MistBrew and retains the IZlauncher and Mac module adaptations in source.
-- [Stremio](https://github.com/Stremio/stremio-web) — the official app icon used in MistBrew.
+- [byizmysh](https://github.com/byizmysh) — [IZ2S Platform](https://github.com/byizmysh/IZ2S-Platform), [BlitBun](https://github.com/byizmysh/BlitBun), [VacooTube](https://github.com/byizmysh/VacooTube), [IZDOOM](https://github.com/byizmysh/IZDOOM) and [Super File Bros.](https://github.com/byizmysh/super-file-bros). mac2jb includes DOOM in MintBrew, retains the IZlauncher Mac adaptations in source and uses Super File Bros. for the experimental read-only SD browser.
+- [Stremio](https://github.com/Stremio/stremio-web) — the official app icon used in MintBrew.
+- [Jmesmykil](https://github.com/Jmesmykil) — [Switch 2 captive portal research scripts](https://github.com/Jmesmykil/switch2-captive-portal-research), included with permission for browser diagnostics.
 - [id Software](https://github.com/id-Software) — the original [Doom engine source](https://github.com/id-Software/DOOM) used by doomgeneric.
 - [ozkl](https://github.com/ozkl) — [doomgeneric](https://github.com/ozkl/doomgeneric), the Doom-compatible engine in the BlitBun Mac adaptation source.
 - [Freedoom contributors](https://freedoom.github.io/) — [Freedoom: Phase 1](https://github.com/freedoom/freedoom), free game data retained with the BlitBun Mac adaptation source.
 - [Khronos Group](https://github.com/KhronosGroup) — [glslang](https://github.com/KhronosGroup/glslang) and [SPIRV-Tools](https://github.com/KhronosGroup/SPIRV-Tools), shader compilation and validation.
 - [Electron](https://www.electronjs.org/) — the Mac runtime referenced by the VacooTube adaptation source.
-
-- [Gezine](https://github.com/Gezine) — [CivSwitch](https://github.com/Gezine/CivSwitch), the Civilization VII chat entry point, payload and USB macro adapted for the Mac flow.
-- [duszmox](https://github.com/duszmox) — [PR #11](https://github.com/cpypwn/mac2jb/pull/11), automatic USB controller discovery through the IORegistry.
-- [dougchansan](https://github.com/dougchansan) — [ns2-savekit](https://github.com/dougchansan/ns2-savekit), save discovery, verified backups and save tools.
-- [alula](https://github.com/alula) — [switch-artemis-launcher](https://github.com/alula/switch-artemis-launcher), the Seedsow and Nora save launchers and HTTP interface.
-- [smarkyie](https://github.com/smarkyie) — [NSP-Box](https://github.com/smarkyie/NSP-Box), the extracted-snapshot packager adapted for Mac.
-- [a55uka](https://github.com/a55uka) — [nup](https://github.com/a55uka/nup), the NUP format and reference tool fetched on request.
-- [Jmesmykil](https://github.com/Jmesmykil) — [Switch 2 captive portal research scripts](https://github.com/Jmesmykil/switch2-captive-portal-research), included with permission for browser diagnostics.
 - [Northernside](https://github.com/Northernside) — [PR #9](https://github.com/cpypwn/mac2jb/pull/9), measured keystroke timing for the bootstrap ETA.
 
 see the bundled notices, licenses and upstream documentation for attribution and reuse terms.
