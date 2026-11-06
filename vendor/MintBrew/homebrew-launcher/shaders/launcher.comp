@@ -3,6 +3,10 @@
 layout(local_size_x=1) in;
 #include "launcher-state.glsl"
 #include "hb.glsl"
+#include "launcher-navigation.glsl"
+void requestRefresh(){
+ if(c.refresh.x<=0.0){c.refresh.x=1.0;c.refresh.y=0.0;c.refresh.z+=1.0;}
+}
 void launchSelection(){
  if(c.state.x<c.reserved.w)c.transition.y=1.0;
  else c.state.w=1u;
@@ -40,7 +44,10 @@ void main(){
   c.flow.xy=clamp(c.flow.xy+optical*1.5,vec2(24),vec2(1896,1056));
  }
 
- c.stats.w=((leftMouse||rightMouse)||c.game.y!=0u)?1u:0u;
+ // game.z: Refresh focus; game.w: controller navigation overrides the pointer.
+ if(length(optical)>0.0||length(stickPointer)>0.0||(pressed&512u)!=0u||
+    (leftMouse&&(pressed&HB_L)!=0u)||(rightMouse&&(pressed&HB_R)!=0u))c.game.w=0u;
+ c.stats.w=(((leftMouse||rightMouse)||c.game.y!=0u)&&c.game.w==0u)?1u:0u;
  c.motion.w=max(0.0,c.motion.w-1.0/60.0);
  if(c.transition.y!=0.0){
   c.transition.x=min(1.0,c.transition.x+1.0/15.0);
@@ -50,8 +57,9 @@ void main(){
  c.transition.x=max(0.0,c.transition.x-1.0/15.0);
  bool connected=(c.raw[2].x&1u)!=0u;
  uint count=min(c.library.x,32u);
- if(count==0u){c.state.x=0u;c.state.w=0u;}else c.state.x=min(c.state.x,count-1u);
+ if(count==0u){c.state.x=0u;c.state.w=0u;c.game.z=1u;}else c.state.x=min(c.state.x,count-1u);
  uint previousSelection=c.state.x;
+ uint previousFocus=c.game.z;
  float target=scrollTarget(c.state.x,count);
  if(c.state.z==1u)c.transition.w=target;
  else c.transition.w=mix(clamp(c.transition.w,0.0,scrollTarget(count>0u?count-1u:0u,count)),target,.22);
@@ -60,7 +68,11 @@ void main(){
   if((pressed&(1u<<13))!=0u)direction=-1;
   if((pressed&(1u<<15))!=0u)direction=1;
   if(abs(stick)>.55&&c.motion.w<=0.0){direction=stick>0.0?-1:1;c.motion.w=.4;}
-  if(direction!=0&&count>0u&&c.state.w==0u)c.state.x=uint((int(c.state.x)+direction+int(count))%int(count));
+  bool right=(pressed&HB_RIGHT)!=0u,left=(pressed&HB_LEFT)!=0u,back=(pressed&HB_B)!=0u;
+  if(c.state.w==0u&&(direction!=0||right||left||back)){
+   mistNavigate(count,direction,right,left,back,c.state.x,c.game.z);
+   c.game.w=1u;c.game.y=0u;c.stats.w=0u;
+  }
   if((pressed&2u)!=0u)c.state.w=0u;
  }
  if(c.stats.w!=0u&&c.state.w==0u){
@@ -70,34 +82,37 @@ void main(){
   if(sliderDown&&abs(c.flow.xy.x-960.0)<=92.0&&abs(c.flow.xy.y-1017.0)<=24.0)c.reserved.x=c.flow.xy.x>=960.0?1u:0u;
   if(length(optical)>0.0||length(stickPointer)>0.0||click){
    int index=hitRow(c.flow.xy,count);
-   if(index>=0){c.state.x=uint(index);if(click)launchSelection();}
+   if(index>=0){c.game.z=0u;c.state.x=uint(index);if(click)launchSelection();}
+   else if(distance(c.flow.xy,vec2(1660,179))<=65.0)c.game.z=1u;
   }
-  if(click&&distance(c.flow.xy,vec2(1660,179))<=65.0&&c.refresh.x<=0.0){c.refresh.x=1.0;c.refresh.y=0.0;c.refresh.z+=1.0;}
+  if(click&&distance(c.flow.xy,vec2(1660,179))<=65.0)requestRefresh();
  }
  bool touching=c.touch[2]==1u&&(c.touch[6]&2u)==0u;
  if(touching){
   vec2 p=vec2(c.touch[8],c.touch[9])*1.5;
-  if(c.library.w==0u&&distance(p,vec2(1660,179))<=65.0&&c.state.w==0u&&c.refresh.x<=0.0){c.refresh.x=1.0;c.refresh.y=0.0;c.refresh.z+=1.0;}
+  if(c.library.w==0u&&distance(p,vec2(1660,179))<=65.0&&c.state.w==0u){c.game.z=1u;requestRefresh();}
   if(c.state.w==0u&&p.x>=868.0&&p.x<=1052.0&&p.y>=993.0&&p.y<=1041.0)c.reserved.x=p.x>=960.0?1u:0u;
   if(c.state.w==0u){
    int index=hitRow(p,count);
-   if(index>=0){c.state.x=uint(index);if(c.state.x<c.reserved.w&&c.library.w==0u)launchSelection();}
+   if(index>=0){c.game.z=0u;c.state.x=uint(index);if(c.state.x<c.reserved.w&&c.library.w==0u)launchSelection();}
   }
  }
  c.library.w=touching?1u:0u;
  // a confirms the highlighted row when the pointer is hidden. with a pointer,
  // it clicks the hovered row or the appearance switch.
- if((pressed&1u)!=0u&&count>0u&&c.state.w==0u){
+ if((pressed&HB_A)!=0u&&c.state.w==0u){
   bool pointerActive=c.stats.w!=0u;
   bool overSwitch=pointerActive&&abs(c.flow.xy.x-960.0)<=92.0&&abs(c.flow.xy.y-1017.0)<=24.0;
-  if(overSwitch)c.reserved.x=c.flow.xy.x>=960.0?1u:0u;
-  else if(pointerActive){
-   int index=hitRow(c.flow.xy,count);
-   if(index>=0){c.state.x=uint(index);launchSelection();}
+  bool overRefresh=pointerActive&&distance(c.flow.xy,vec2(1660,179))<=65.0;
+  int index=pointerActive?hitRow(c.flow.xy,count):-1;
+  uint action=mistMenuAction(pointerActive,overRefresh,overSwitch,index,count,c.state.x,c.game.z);
+  if(action==2u){c.game.z=1u;requestRefresh();}
+  else if(action==3u)c.reserved.x=c.flow.xy.x>=960.0?1u:0u;
+  else if(action==1u){
+   c.game.z=0u;if(pointerActive)c.state.x=uint(index);launchSelection();
   }
-  else launchSelection();
  }
- if(c.state.x!=previousSelection){
+ if(c.state.x!=previousSelection||c.game.z!=previousFocus){
   c.stats.y=c.state.z;
   c.events.x++;
   c.events.y=8u;

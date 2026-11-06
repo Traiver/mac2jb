@@ -56,7 +56,7 @@ configuration, keep that setup.
 
 ### 2. install and load the usb driver
 
-1. extract the supplied v0.7.4 zip and open `mac2jb.app`.
+1. extract the supplied v0.7.5 zip and open `mac2jb.app`.
 2. if macOS blocks the app, open system settings → privacy & security and choose open anyway if offered, then reopen the app.
 3. click install & load driver… and approve the administrator prompt.
 4. if prompted, open system settings → privacy & security and allow the driver.
@@ -340,6 +340,12 @@ probe, Hello World and a CHIP-8 test emulator. add or remove compatible gpu apps
 while it is open, then refresh the list on the Switch. hold B or Minus to return
 from a running app and choose another in the same held rpc session.
 
+Use **Up** above the first app or **Right** on the D-pad to focus the Refresh
+button, then press **A**. Its ice-blue outline shows focus. **Down** returns to
+the first app; **Left** or **B** returns to the previously selected app. The left
+stick also moves vertically through the apps and Refresh. With the right-stick
+pointer, hovering Refresh and pressing A works as well.
+
 DOOM is a GPU POC based on PureDOOM, bundled with DOOM shareware v1.9 (Episode 1).
 
 ftpd-sb shares SmileBASIC's `/save` and `/tmp` files with read/write access
@@ -363,6 +369,53 @@ through the list. Hold Up/Down to repeat after a short initial delay; release
 to stop. The ice-blue scrollbar at the right shows the current visible position.
 It is hidden when all entries fit on one page. Connect to the displayed HTTP/WebDAV address on port 8080
 with a browser or WinSCP (WebDAV, no TLS or credentials).
+
+`[Folder] Save Games` is the second OunceCake entry, directly below Firmware.
+It reads the console's complete User/SD-User save index independently of the
+installed-game catalog, so saves from uninstalled games remain accessible.
+Account, shared Device and game-related BCAT archives are listed and exported;
+temporary storage, cache and StreamPlay archives are excluded.
+Folders containing only BCAT are marked `[BCAT]`; mixed folders are marked
+`[Saves + BCAT]`. The individual archive list also identifies BCAT explicitly.
+Reserved system-title IDs are excluded as well. An unavailable game name does
+not hide a valid game save; uninstalled games can still appear by TitleID.
+Open a title folder to choose a profile/archive, or choose **Export All Saves**
+to prepare a single HTTP/WebDAV collection on the Mac. Names come from available
+console control data; missing names fall back to `Unknown title [TitleID]`.
+Large catalogs are paged without dropping entries.
+
+The collection is arranged as `All Saves/<Game [TitleID]>/<Profile [UID]>/<Archive>/`,
+with `files/` and an individual manifest inside each archive, plus a collection
+manifest. Archives are copied sequentially through read-only mounts and checked
+before sharing. Busy or otherwise refused archives are listed in the manifest;
+the result is explicitly marked **PARTIAL** and named `All Saves (partial)`.
+Transport errors, uncertain native cleanup and cancellation abort the collection.
+The active host app's save may be locked. Keep other games closed during backup.
+Bulk preparation has a one-hour cooperative deadline and can be cancelled by
+holding B or Minus; cleanup waits for the current console request to settle.
+
+To export save data, close the game, highlight it in OunceCake and press **Y Saves**.
+Choose the profile name and archive (Account, shared Device or BCAT), then
+press **A**. OunceCake opens the selected archive read-only, copies every file to
+a private Mac backup and verifies its SHA-256 checksums. The download is enabled
+only after copying and native-handle cleanup have completed. No save files are
+written or committed on the console; restore/import is not part of this feature.
+Profile names are read from the console and matched to the complete raw user ID.
+Identical names include their IDs to distinguish them; unavailable names fall
+back to the user ID. Shared archives remain labelled `Shared`.
+
+Save downloads use the **Mac address displayed on the Switch**, fixed port **8081**
+and the root path **/**, for example `http://192.168.1.10:8081/`. In WinSCP choose
+WebDAV without TLS, set port 8081 and remote directory `/`, then download the
+complete title folder, including `files/` and
+`manifest.json`. The manifest records the title, raw account UID, archive identity,
+file sizes and checksums; save files named `manifest.json` remain inside `files/`.
+Press **B** to stop sharing and return to the archive list. A completed local copy
+remains in the current session's `runs/mintbrew-*/save-backups/` directory until the
+session is deleted. Failed or cancelled copies are removed and never shared.
+If port 8081 is occupied, OunceCake reports the conflict instead of silently
+changing ports. The Mac's IP address is assigned by the network; reserve its
+address in your router if you want it to remain fixed across network changes.
 
 Title rows use the full list width; long names can scale down to fit while retaining their TitleID. The firmware entry omits its internal sentinel ID.
 
