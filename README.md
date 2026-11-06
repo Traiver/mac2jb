@@ -2,12 +2,14 @@
 
 my fork of [cpypwn/mac2jb](https://github.com/cpypwn/mac2jb), an all-in-one
 Switch 2 jailbreaking tool for Mac. Includes upstream changes through `51498e4` (v0.7.3); this fork adds
-OunceCake system-title, elicense titles & original NCA exports.
+OunceCake save backups, system-title, elicense title & original NCA exports.
 See [CHANGELOG.md](CHANGELOG.md) for details.
 
 ## fork highlights
 
 - OunceCake now uses http instead of ftp
+- export all console game saves and BCAT archives, including uninstalled games,
+  with profile names and read-only HTTP/WebDAV downloads.
 - export extracted system-title files, elicense titles like GameCube NSO or original registered firmware NCAs.
 - download original installed title NCAs without preparing an ELicense; missing
   or unusable licenses can fall back to the encrypted export after safe cleanup.
@@ -60,7 +62,7 @@ configuration, keep that setup.
 
 ### 2. install and load the usb driver
 
-1. extract the supplied v0.7.4 zip and open `mac2jb.app`.
+1. extract the supplied v0.7.5 zip and open `mac2jb.app`.
 2. if macOS blocks the app, open system settings → privacy & security and choose open anyway if offered, then reopen the app.
 3. click install & load driver… and approve the administrator prompt.
 4. if prompted, open system settings → privacy & security and allow the driver.
