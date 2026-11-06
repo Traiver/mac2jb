@@ -1,18 +1,14 @@
 # mac2jb MistBrew fork
 
 my fork of [cpypwn/mac2jb](https://github.com/cpypwn/mac2jb), an all-in-one
-Switch 2 jailbreaking tool for Mac. Includes upstream changes through `51498e4` (v0.7.3); this fork adds
-OunceCake system-title, elicense titles & original NCA exports.
-See [CHANGELOG.md](CHANGELOG.md) for details.
+Switch 2 jailbreaking tool for Mac.
 
 ## fork highlights
 
 - OunceCake now uses http instead of ftp
-- export extracted system-title files, elicense titles like GameCube NSO or original registered firmware NCAs.
-- download original installed title NCAs without preparing an ELicense; missing
-  or unusable licenses can fall back to the encrypted export after safe cleanup.
-- reopen OunceCake within a healthy held RPC session, with bounded preparation
-  and lower HTTP server memory usage. A broken transport still requires restart.
+- export extracted firmwares, system titles, games, savegames and more
+- supports ELicense titles like NSO GC
+- redesigned app and overall enhanced user experience
 
 ## what you need
 
