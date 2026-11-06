@@ -28,6 +28,12 @@ test('compressed Unicode control names decode within a bounded buffer',()=>{
  data.writeUInt16LE(packed.length);packed.copy(data,2);data[0x3215]=1;
  assert.equal(library.controlName(data),'パトリクのゲーム');data.writeUInt16LE(65535);assert.equal(library.controlName(data),undefined);
 });
+test('BCAT-only and mixed save folders are visibly distinguished',()=>{
+ const group={name:'Test game',archives:[{...archive(1),type:2}]};
+ assert.equal(library.folderName(group),'[Folder] [BCAT] Test game (1)');
+ group.archives.push(archive(2));assert.equal(library.folderName(group),'[Folder] [Saves + BCAT] Test game (2)');
+ assert.equal(library.folderName({name:'Other game',archives:[archive(3)]}),'[Folder] Other game (1)');
+});
 function toolsFor(archives,{denied,unsafe,cancelAfter}={}){
  let scans=0,copies=0;const attachment={s:{handles:new Set([1]),threads:new Set()}};
  const tools={...saves,async inventory(){scans++;return archives;},async snapshot({archive,directory,verifiedInventory}){
@@ -63,7 +69,7 @@ test('bulk cancellation removes the incomplete collection instead of publishing 
 test('bulk export refuses auxiliary and system archives before any native backup starts',async t=>{
  const directory=await temp(t);
  for(const bad of [{...archive(1),type:5},{...archive(1),type:3,titleId:'0400000000001000'}]){
-  const f=toolsFor([bad]);await assert.rejects(snapshotAll({...f,archives:[bad],directory}),/Only Account and Device game saves/);assert.equal(f.scans,0);
+  const f=toolsFor([bad]);await assert.rejects(snapshotAll({...f,archives:[bad],directory}),/Only Account, Device or BCAT game archives/);assert.equal(f.scans,0);
  }
  assert.deepEqual(await fs.readdir(directory),[]);
 });
@@ -87,4 +93,11 @@ test('an explicitly partial collection remains downloadable with its missing-arc
  const download=await server.start({...backup,name:'All Saves (partial)',address:'127.0.0.1',port:0});t.after(()=>download.close());
  const manifest=JSON.parse((await get(download.url+'All%20Saves%20(partial)/manifest.json')).body);
  assert.equal(manifest.partial,true);assert.equal(manifest.failed[0].selection.id,'2');assert.equal(manifest.archives.length,1);await download.close();
+});
+
+test('bulk export retains BCAT with an explicit BCAT folder and manifest type',async t=>{
+ const directory=await temp(t),bcat={...archive(2),type:2,uid:'0'.repeat(32)},archives=[archive(1),bcat],f=toolsFor(archives);
+ const backup=await snapshotAll({...f,archives,directory});assert.equal(backup.manifest.partial,false);
+ const saved=backup.manifest.archives.find(a=>a.selection.type===2);assert.ok(saved);assert.match(saved.path,/BCAT NAND/);assert.match(saved.path,/Shared/);
+ const manifest=JSON.parse(await fs.readFile(path.join(backup.folder,'files',saved.path,'manifest.json'),'utf8'));assert.equal(manifest.selection.type,2);
 });

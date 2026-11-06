@@ -41,12 +41,12 @@ test('unfiltered FS inventory includes saves for titles absent from the installe
  const all=await saves.inventory({...f});assert.deepEqual(new Set(all.map(a=>a.titleId)),new Set([archive.titleId,removed.titleId]));
  assert.deepEqual([...f.attachment.s.handles],[1]);assert.ok(f.calls.every(c=>[61,0].includes(c.cmd)));
 });
-test('game save inventory excludes auxiliary archives and retains shared progress of uninstalled games',async()=>{
+test('game save inventory includes BCAT but excludes caches, temporary and system archives',async()=>{
  const rows=[archive,{...archive,id:'124',type:3,uid:'0'.repeat(32),titleId:'0400123456790000'},
   ...[2,4,5,7].map((type,i)=>({...archive,id:String(200+i),type,titleId:'0400123456700000'})),
   {...archive,id:'300',type:3,titleId:'0400000000001000'}, {...archive,id:'301',type:1,titleId:'0100000000001000'}];
  const f=attached({count:rows.length,recordBytes:Buffer.concat(rows.map(record))});
- const all=await saves.inventory({...f});assert.deepEqual(all.map(a=>a.type),[3,1]);
+ const all=await saves.inventory({...f});assert.deepEqual(all.map(a=>a.type),[3,1,2]);
  const audit=attached({count:rows.length,recordBytes:Buffer.concat(rows.map(record))});
  assert.equal((await saves.inventory({...audit,includeAuxiliary:true})).length,rows.length);
  assert.deepEqual([...f.attachment.s.handles],[1]);
@@ -90,6 +90,14 @@ test('failed or cancelled save copy never leaves a downloadable partial backup',
  const folder=await directory(t),f=attached();let stopped=false;
  await assert.rejects(saves.snapshot({...f,archive,directory:folder,shouldStop:()=>stopped,onProgress:()=>{stopped=true;}}),{code:'FTP_CANCELLED'});
  assert.deepEqual(await fs.readdir(folder),[]);assert.deepEqual([...f.attachment.s.handles],[1]);
+});
+test('BCAT export uses the exact game archive and a read-only save mount',async t=>{
+ const target=await directory(t);
+ const bcat={...archive,type:2,uid:'0'.repeat(32)},f=attached({recordBytes:record(bcat)});
+ const backup=await saves.snapshot({...f,archive:bcat,directory:target});
+ assert.equal(backup.manifest.selection.type,2);assert.equal(backup.manifest.files,3);
+ const open=f.calls.find(c=>c.cmd===53);assert.equal(open.input[40],2);assert.equal(open.input.subarray(16,32).toString('hex'),'0'.repeat(32));
+ assert.ok(f.calls.every(c=>[0,53,61].includes(c.cmd)));assert.deepEqual([...f.attachment.s.handles],[1]);
 });
 test('stale and system archives are never opened as a fallback',async t=>{
  const folder=await directory(t),f=attached({count:0});

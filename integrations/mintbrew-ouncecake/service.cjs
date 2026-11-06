@@ -259,7 +259,7 @@ function create({rpc,menu,gpu,app,directory,root,runDirectory,sourceSession,
   await showCatalog('saves',1);
  }
  async function showSaveLibrary(page=0){
-  const rows=libraryGroups.map(group=>({name:'[Folder] '+group.name+' ('+group.archives.length+')',titleId:group.titleId,kind:'save-title-folder',saveGroup:group.titleId}));
+  const rows=libraryGroups.map(group=>({name:saveLibrary.folderName(group),titleId:group.titleId,kind:'save-title-folder',saveGroup:group.titleId}));
   const prefix=libraryArchives.length?[{name:'Export All Saves ('+libraryArchives.length+' archives)',saveBatch:true,titleName:'All Saves',kind:'save-data'}]:[];
   const next=saveLibrary.page(rows,{page,parent:'root',kind:'library',prefix});libraryPage=next.page;catalogs['save-games']=next.rows;
   await renderTitle({name:'Save Games',kind:'save-data'});await showCatalog('save-games',1);

@@ -4,7 +4,7 @@
   "id": "ouncecake",
   "name": "OunceCake",
   "version": "0.1.0",
-  "description": "Export games, system titles and original firmware NCAs over read-only HTTP/WebDAV",
+  "description": "Export games, saves, system titles and firmwares over read-only HTTP/WebDAV",
   "service": "ouncecake-v1",
   "transition": "none",
   "icon": "icon.png",

@@ -4,10 +4,10 @@ const fs=require('node:fs/promises'),path=require('node:path'),crypto=require('n
 const attr=require('../../vendor/ns2-savekit/tools/lib/save-attr.cjs');
 const {success,withCleanup,throwIfCancelled}=require('../../vendor/OunceCake/engine/protocol.cjs');
 const TYPES={1:'Account',2:'BCAT',3:'Device',4:'Temporary',5:'Cache',7:'StreamPlay'};
-// Persistent game progress: per-user Account saves and shared Device saves.
-// BCAT, Temporary, Cache and StreamPlay are auxiliary data, not this browser's scope.
+// Include per-user Account saves, shared Device saves and game-related BCAT.
+// Temporary, Cache and StreamPlay remain outside this browser's scope.
 function isGameSave(a){
- if(!a||![1,3].includes(a.type)||!/^(01|04)[0-9a-f]{14}$/.test(a.titleId))return false;
+ if(!a||![1,2,3].includes(a.type)||!/^(01|04)[0-9a-f]{14}$/.test(a.titleId))return false;
  // Exclude the reserved system-title region. Switch application IDs start at
  // 0100000000010000; Switch 2 game IDs use the 04 platform prefix.
  return (BigInt('0x'+a.titleId)&0x00ffffffffffffffn)>=0x10000n;
@@ -75,7 +75,7 @@ async function hashFile(file){
  return hash.digest('hex');
 }
 async function snapshot({attachment,archive,directory,shouldStop=()=>false,onProgress=()=>{},verifiedInventory}){
- validateArchive(archive);check(isGameSave(archive),'Only Account and Device game saves can be exported');throwIfCancelled(shouldStop);
+ validateArchive(archive);check(isGameSave(archive),'Only Account, Device or BCAT game archives can be exported');throwIfCancelled(shouldStop);
  const {s,root,domain,filesystem}=attachment;
  // Recheck the exact index entry before opening; never guess another user/archive.
  const current=verifiedInventory||await inventory({attachment,titleId:archive.titleId,shouldStop});

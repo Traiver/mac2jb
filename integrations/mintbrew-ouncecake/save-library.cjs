@@ -50,6 +50,11 @@ function groups(archives){
  }
  return [...byTitle.values()].sort((a,b)=>a.name.localeCompare(b.name,'en',{sensitivity:'base'})||a.titleId.localeCompare(b.titleId));
 }
+function folderName(group){
+ const bcat=group.archives.filter(a=>a.type===2).length;
+ const tag=bcat?(bcat===group.archives.length?'[BCAT] ':'[Saves + BCAT] '):'';
+ return '[Folder] '+tag+group.name+' ('+group.archives.length+')';
+}
 // Keep every archive reachable without changing the GPU's 1001-row buffer.
 function page(rows,{page=0,parent='root',kind='library',prefix=[]}={}){
  const size=990,last=Math.max(0,Math.ceil(rows.length/size)-1),current=Math.min(Math.max(0,page),last);
@@ -59,4 +64,4 @@ function page(rows,{page=0,parent='root',kind='library',prefix=[]}={}){
  if(current<last)output.push({name:'[Next page]',savePage:{kind,page:current+1}});
  return {rows:output,page:current};
 }
-module.exports={titleNames,controlName,groups,page};
+module.exports={titleNames,controlName,groups,folderName,page};
