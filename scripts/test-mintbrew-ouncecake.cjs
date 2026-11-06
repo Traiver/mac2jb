@@ -224,7 +224,7 @@ test('MintBrew selects a typed system export and still proves shutdown before an
    return {index:Buffer.alloc(64),sources:[{handle:7,kind:1,size:0}],exportInfo:{kind:'system-program',version:7}};}};
  const {instance,events}=fixture(t,{exportsEngine});
  await instance.start();await waitFor(()=>instance.report.status,'catalog');
- assert.equal(instance.report.visibleEntries,1);await instance.selectRaw(0);
+ assert.equal(instance.report.visibleEntries,2);await instance.selectRaw(0);
  await waitFor(()=>instance.report.catalogView,'system');await waitFor(()=>instance.report.status,'catalog');
  assert.equal(prepared,0);assert.equal(instance.report.visibleEntries,2);
  await instance.select(1);await waitFor(()=>instance.report.status,'running');
@@ -295,22 +295,22 @@ test('System Files groups only system entries and Back restores the folder witho
  const system={title:'0100000000000002',name:'System',storages:[3],kind:'system-data'};
  const firmware={title:'0000000000000000',name:'Firmware',storages:[3],kind:'firmware-nca'};
  const pages=views([firmware,system,game]);
- assert.deepEqual(pages.root.slice(0,2),[firmware,game]);
- assert.equal(pages.root[2].name,'[Folder] System Files (1)');
+ assert.equal(pages.root[0],firmware);assert.equal(pages.root[1].saveLibrary,true);assert.equal(pages.root[2],game);
+ assert.equal(pages.root[3].name,'[Folder] System Files (1)');
  assert.equal(pages.system[0].name,'[..] Back');assert.equal(pages.system[1],system);
- assert.equal(views([game]).root.length,1);
+ assert.equal(views([game]).root.length,2);
  assert.equal(views(Array(1000).fill(system)).system.length,1001);
  let discoveries=0,preparations=0;
  const {instance,events}=fixture(t,{exportsEngine:{async discoverExports(){discoveries++;return [game,system];},
   async prepareExport(){preparations++;throw Error('Navigation must not prepare content');}}});
  await instance.start();await waitFor(()=>instance.report.status,'catalog');
- await instance.selectRaw(1);await waitFor(()=>instance.report.catalogView,'system');await waitFor(()=>instance.report.status,'catalog');
+ await instance.selectRaw(2);await waitFor(()=>instance.report.catalogView,'system');await waitFor(()=>instance.report.status,'catalog');
  let header=events.writes.at(-1).bytes;
  assert.equal(header.readUInt32LE(12),2);assert.equal(header.readUInt32LE(20),1);assert.equal(header.readUInt32LE(24),1);
  await instance.back();await waitFor(()=>instance.report.catalogView,'root');await waitFor(()=>instance.report.status,'catalog');
  header=events.writes.at(-1).bytes;
- assert.equal(header.readUInt32LE(12),3);assert.equal(header.readUInt32LE(20),0);assert.equal(header.readUInt32LE(24),1);
- await instance.select(1);await waitFor(()=>instance.report.catalogView,'system');await waitFor(()=>instance.report.status,'catalog');
+ assert.equal(header.readUInt32LE(12),3);assert.equal(header.readUInt32LE(20),0);assert.equal(header.readUInt32LE(24),2);
+ await instance.select(2);await waitFor(()=>instance.report.catalogView,'system');await waitFor(()=>instance.report.status,'catalog');
  await instance.select(0);await waitFor(()=>instance.report.catalogView,'root');await waitFor(()=>instance.report.status,'catalog');
  assert.equal(discoveries,1);assert.equal(preparations,0);assert.deepEqual(events.closed,[]);assert.equal(events.deployed,0);
  await instance.close();assert.equal(events.detach,1);
@@ -465,4 +465,45 @@ test('unsafe save cleanup retains resources and calls the fatal handler',async t
  await instance.selectSaves(0);await waitFor(()=>instance.report.catalogView,'saves');await waitFor(()=>instance.report.status,'catalog');
  await instance.select(1);await waitFor(()=>instance.report.cleanupBlocked,true);await assert.rejects(instance.close(),/save handle close/);
  assert.equal(events.detach,0);assert.equal(events.fatal.length,1);
+});
+
+
+test('Save Games follows firmware and browses uninstalled saves, profiles and a bulk HTTP export',async t=>{
+ const removed='0400123456790000',installed='0100000000000001',scans=[],snapshots=[],deployments=[];let visible=[];
+ const archives=[{...saveArchive,titleId:installed,userName:'Player'}, {...saveArchive,id:'13',titleId:removed,userName:'Other player'}];
+ const saveTools={label:a=>a.userName,
+  async inventory({titleId}){scans.push(titleId);return archives;},async withProfiles({archives}){return archives;},
+  async titleNames(){return new Map([[installed,'Installed game'],[removed,'Uninstalled game']]);},
+  async snapshot({archive}){snapshots.push(archive);return {folder:'/backup/one',manifest:{files:1,bytes:3}};},
+  async snapshotAll({archives:rows}){assert.deepEqual(rows.map(a=>a.titleId),[installed,removed]);return {folder:'/backup/all',manifest:{files:4,bytes:12,partial:false,failed:[],archives:rows}};}};
+ const saveServer={hostAddress:()=> '192.0.2.1',async start({name}){deployments.push(name);return {kind:'local-save',url:'http://192.0.2.1:8081/',async close(){return {localStopped:true,connectionsClosed:true};}};}};
+ const {instance,events}=fixture(t,{saveTools,saveServer,
+  exportsEngine:{async discoverExports(){return [{title:'fffffffffffffff0',name:'Firmware',kind:'firmware-nca',storages:[3]},{title:installed,name:'Installed game',storages:[4]}];},async prepareExport(){throw Error('Saved titles must not use game-content mounts');}},
+  rasterRows:async rows=>{visible=rows;return Buffer.alloc(rows.length*protocol.TILE_BYTES);}});
+ await instance.start();await waitFor(()=>instance.report.status,'catalog');assert.equal(visible[0].kind,'firmware-nca');assert.equal(visible[1].saveLibrary,true);
+ await instance.select(1);await waitFor(()=>instance.report.catalogView,'save-games');await waitFor(()=>instance.report.status,'catalog');
+ assert.deepEqual(scans,[undefined]);assert.equal(instance.report.saveLibrary.archives,2);
+ assert.match(visible[1].name,/Export All Saves/);
+ const index=visible.findIndex(row=>row.saveGroup===removed);assert.ok(index>1);
+ await instance.select(index);await waitFor(()=>instance.report.catalogView,'saves');await waitFor(()=>instance.report.status,'catalog');
+ assert.equal(visible[1].name,'Other player');await instance.select(1);await waitFor(()=>instance.report.status,'running');
+ assert.equal(snapshots[0].titleId,removed);await instance.back();await waitFor(()=>instance.report.status,'catalog');
+ await instance.back();await waitFor(()=>instance.report.catalogView,'save-games');await waitFor(()=>instance.report.status,'catalog');
+ await instance.select(1);await waitFor(()=>instance.report.status,'running');assert.equal(instance.report.exportKind,'save-collection');
+ assert.equal(instance.report.saveBackup.archives,2);assert.equal(deployments.at(-1),'All Saves');assert.equal(events.deployed,0);
+ await instance.back();await waitFor(()=>instance.report.status,'catalog');await instance.back();await waitFor(()=>instance.report.catalogView,'root');
+ await instance.close();assert.equal(events.detach,1);
+});
+
+
+test('a partial bulk backup is explicitly marked in the UI and share name',async t=>{
+ const entry={...saveArchive,userName:'Player'},failed=[{selection:{...saveArchive,id:'13'},message:'Save is busy'}];let shareName;
+ const saveTools={label:()=> 'Player',async inventory(){return [entry];},async withProfiles({archives}){return archives;},
+  async titleNames(){return new Map([[entry.titleId,'Test game']]);},async snapshotAll(){return {folder:'/backup/partial',manifest:{partial:true,failed,archives:[entry],files:1,bytes:3}};}};
+ const saveServer={hostAddress:()=> '192.0.2.1',async start({name}){shareName=name;return {kind:'local-save',url:'http://192.0.2.1:8081/',async close(){return {localStopped:true,connectionsClosed:true};}};}};
+ const {instance,events}=fixture(t,{saveTools,saveServer});await instance.start();await waitFor(()=>instance.report.status,'catalog');
+ await instance.select(1);await waitFor(()=>instance.report.catalogView,'save-games');await waitFor(()=>instance.report.status,'catalog');await instance.select(1);await waitFor(()=>instance.report.status,'running');
+ assert.equal(shareName,'All Saves (partial)');assert.equal(instance.report.saveBackup.partial,true);
+ const header=events.writes.filter(x=>x.bytes.length===protocol.HEADER_BYTES).at(-1).bytes;
+ assert.match(header.subarray(128,128+header.readUInt32LE(16)).toString(),/^PARTIAL http:/);await instance.close();
 });

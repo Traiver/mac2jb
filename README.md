@@ -374,6 +374,24 @@ to stop. The ice-blue scrollbar at the right shows the current visible position.
 It is hidden when all entries fit on one page. Connect to the displayed HTTP/WebDAV address on port 8080
 with a browser or WinSCP (WebDAV, no TLS or credentials).
 
+`[Folder] Save Games` is the second OunceCake entry, directly below Firmware.
+It reads the console's complete User/SD-User save index independently of the
+installed-game catalog, so saves from uninstalled games remain accessible.
+Open a title folder to choose a profile/archive, or choose **Export All Saves**
+to prepare a single HTTP/WebDAV collection on the Mac. Names come from available
+console control data; missing names fall back to `Unknown title [TitleID]`.
+Large catalogs are paged without dropping entries.
+
+The collection is arranged as `All Saves/<Game [TitleID]>/<Profile [UID]>/<Archive>/`,
+with `files/` and an individual manifest inside each archive, plus a collection
+manifest. Archives are copied sequentially through read-only mounts and checked
+before sharing. Busy or otherwise refused archives are listed in the manifest;
+the result is explicitly marked **PARTIAL** and named `All Saves (partial)`.
+Transport errors, uncertain native cleanup and cancellation abort the collection.
+The active host app's save may be locked. Keep other games closed during backup.
+Bulk preparation has a one-hour cooperative deadline and can be cancelled by
+holding B or Minus; cleanup waits for the current console request to settle.
+
 To export save data, close the game, highlight it in OunceCake and press **Y Saves**.
 Choose the profile name and archive (Account, shared Device, BCAT or Cache), then
 press **A**. OunceCake opens the selected archive read-only, copies every file to

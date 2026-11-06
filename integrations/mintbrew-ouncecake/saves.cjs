@@ -20,7 +20,7 @@ function validateArchive(a){
 }
 const identity=a=>[a.id,a.space,a.type,a.rank,a.index,a.uid,a.titleId].join(':');
 async function inventory({attachment,titleId,shouldStop=()=>false}){
- check(/^[0-9a-f]{16}$/.test(titleId),'Invalid save title ID');
+ check(titleId===undefined||/^[0-9a-f]{16}$/.test(titleId),'Invalid save title ID');
  const {s,root,domain}=attachment,archives=[];
  check(!s.threads.size,'Save enumeration requires an idle attachment');
  for(const space of [1,4]){
@@ -47,7 +47,7 @@ async function inventory({attachment,titleId,shouldStop=()=>false}){
     for(let i=0;i<count;i++){
      const a=parseRecord(bytes.subarray(i*0x60,(i+1)*0x60));
      check(a.space===space,'Save archive space differs from its index');
-     if(a.titleId===titleId&&Object.hasOwn(TYPES,a.type))archives.push(validateArchive(a));
+     if((titleId===undefined||a.titleId===titleId)&&Object.hasOwn(TYPES,a.type))archives.push(validateArchive(a));
     }
     if(count<64)return;
    }
@@ -55,7 +55,7 @@ async function inventory({attachment,titleId,shouldStop=()=>false}){
   },()=>s.close(reader));
  }
  check(new Set(archives.map(identity)).size===archives.length,'Duplicate save archive identity');
- check(archives.length<=990,'Too many save archives to display');
+ check(archives.length<=8192,'Save archive inventory exceeds its limit');
  return archives.sort((a,b)=>a.uid.localeCompare(b.uid)||a.type-b.type||a.index-b.index||a.rank-b.rank||a.space-b.space);
 }
 function label(a){return (a.uid==='0'.repeat(32)?'Shared':a.userName?a.userName+(a.duplicateName?' ['+a.uid+']':''):'User '+a.uid)+' / '+TYPES[a.type]+
@@ -66,11 +66,11 @@ async function hashFile(file){
  finally{await handle.close();}
  return hash.digest('hex');
 }
-async function snapshot({attachment,archive,directory,shouldStop=()=>false,onProgress=()=>{}}){
+async function snapshot({attachment,archive,directory,shouldStop=()=>false,onProgress=()=>{},verifiedInventory}){
  validateArchive(archive);throwIfCancelled(shouldStop);
  const {s,root,domain,filesystem}=attachment;
  // Recheck the exact index entry before opening; never guess another user/archive.
- const current=await inventory({attachment,titleId:archive.titleId,shouldStop});
+ const current=verifiedInventory||await inventory({attachment,titleId:archive.titleId,shouldStop});
  check(current.some(a=>identity(a)===identity(archive)),'Selected save archive is no longer installed');
  check(!s.threads.size,'Save export requires an idle attachment');
  const input=attr.build({...archive,referenceId:BigInt('0x'+archive.titleId),uid:Buffer.from(archive.uid,'hex')});
@@ -129,4 +129,5 @@ async function snapshot({attachment,archive,directory,shouldStop=()=>false,onPro
  finally{if(folder&&!complete)await fs.rm(folder,{recursive:true,force:true});}
 }
 module.exports={inventory,snapshot,label,parseRecord,validateArchive,identity,safeName,hashFile,
- withProfiles:require('./save-profiles.cjs').decorate};
+ withProfiles:require('./save-profiles.cjs').decorate,
+ titleNames:require('./save-library.cjs').titleNames,snapshotAll:require('./save-collection.cjs').snapshotAll};

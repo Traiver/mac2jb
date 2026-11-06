@@ -35,6 +35,12 @@ test('save inventory rejects corrupt counts and space mismatches without leaking
   const f=attached(options);await assert.rejects(saves.inventory({...f,titleId}),/count|space/);assert.deepEqual([...f.attachment.s.handles],[1]);
  }
 });
+test('unfiltered FS inventory includes saves for titles absent from the installed game catalog',async()=>{
+ const removed={...archive,id:'124',titleId:'0400123456790000'};
+ const f=attached({count:2,recordBytes:Buffer.concat([record(archive),record(removed)])});
+ const all=await saves.inventory({...f});assert.deepEqual(new Set(all.map(a=>a.titleId)),new Set([archive.titleId,removed.titleId]));
+ assert.deepEqual([...f.attachment.s.handles],[1]);assert.ok(f.calls.every(c=>[61,0].includes(c.cmd)));
+});
 test('an absent SD card preserves NAND saves; other SD errors never become an empty success',async()=>{
  for(const result of [0x8ed37e02,0x320002]){
   const f=attached(),original=f.attachment.s.ipc;

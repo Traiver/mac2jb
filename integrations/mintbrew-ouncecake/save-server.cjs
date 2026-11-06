@@ -18,20 +18,23 @@ function hostAddress(switchAddress,interfaces=os.networkInterfaces()){
 }
 async function start({folder,manifest,name,address,port=DEFAULT_PORT}){
  check(net.isIPv4(address)&&!address.startsWith('0.')&&safeName(name),'Invalid save download endpoint');
- check(manifest?.format==='mac2jb.save-backup'&&manifest.partial===false&&
+ const collection=manifest?.format==='mac2jb.save-collection';
+ check(['mac2jb.save-backup','mac2jb.save-collection'].includes(manifest?.format)&&
+  (manifest.partial===false||collection&&manifest.partial===true&&manifest.failed?.length>0&&manifest.archives?.length>0)&&
   Array.isArray(manifest.entries)&&Array.isArray(manifest.directories),'Incomplete save backup');
  const root=await fs.realpath(folder),base='/';
- const nodes=new Map([['',{directory:true}], [name,{directory:true}], [name+'/files',{directory:true}]]);
+ const prefix=name+(collection?'':'/files');
+ const nodes=new Map([['',{directory:true}], [name,{directory:true}],...collection?[]:[[prefix,{directory:true}]]]);
  const add=(key,node)=>{check(!nodes.has(key),'Repeated save download path');nodes.set(key,node);};
  const validate=p=>{check(typeof p==='string'&&p.split('/').every(safeName),'Invalid backup path');};
- for(const relative of manifest.directories){validate(relative);add(name+'/files/'+relative,{directory:true});}
+ for(const relative of manifest.directories){validate(relative);add(prefix+'/'+relative,{directory:true});}
  async function file(relative,key,expected){
   const target=path.join(root,relative),info=await fs.lstat(target);
   check(info.isFile()&&!info.isSymbolicLink()&&await fs.realpath(target)===target,'Unsafe save backup file');
   if(expected)check(info.size===expected.size&&await hashFile(target)===expected.sha256,'Save backup changed before download');
   add(key,{target,size:info.size,sha256:expected?.sha256});
  }
- for(const entry of manifest.entries){validate(entry.path);await file('files/'+entry.path,name+'/files/'+entry.path,entry);}
+ for(const entry of manifest.entries){validate(entry.path);await file('files/'+entry.path,prefix+'/'+entry.path,entry);}
  const diskManifest=JSON.parse(await fs.readFile(path.join(root,'manifest.json'),'utf8'));
  check(JSON.stringify(diskManifest)===JSON.stringify(manifest),'Save backup manifest changed before download');
  await file('manifest.json',name+'/manifest.json');

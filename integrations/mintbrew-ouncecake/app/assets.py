@@ -25,7 +25,7 @@ labels = [
     ('RETURN', 'Hold B or Minus to return to MistBrew', 25),
     ('SELECT', 'A Open   X Raw NCA   L/R Page', 25),
     ('GAME_SELECT', 'A Open   X Raw NCA   Y Saves   L/R Page', 25),
-    ('SAVE_SELECT', 'A Export save   B Back   L/R Page', 25),
+    ('SAVE_SELECT', 'A Open / export   B Back   L/R Page', 25),
     ('BACK', 'Press B to return to export list', 25),
 ]
 header = []
