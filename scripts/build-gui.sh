@@ -103,6 +103,7 @@ bash scripts/test-artemis-http.sh
 "$NODE_BINARY" --test scripts/test-savekit-title-names.cjs
 "$NODE_BINARY" --test scripts/test-seedsow-held-session.cjs
 "$NODE_BINARY" --test scripts/test-custom-rpc-package.cjs scripts/test-gui-homebrew.cjs
+"$NODE_BINARY" --test scripts/test-mistbrew-controller-navigation.cjs
 "$NODE_BINARY" scripts/check-savekit-research.cjs
 "$NODE_BINARY" integrations/super-file-bros/read-only-export.cjs --self-test
 "$NODE_BINARY" --test scripts/test-super-file-bros.cjs integrations/mintbrew-native/contract.test.cjs
@@ -115,7 +116,7 @@ PATH="$BUILD/homebrew/python/bin:$BUILD/homebrew/bin:$PATH" \
 "$NODE_BINARY" scripts/prepare-izlauncher.cjs --check-source
 "$NODE_BINARY" scripts/gui-ouncecake.cjs --self-test
 PATH="$BUILD/homebrew/python/bin:$BUILD/homebrew/bin:$PATH" "$NODE_BINARY" --test \
-  scripts/test-gui-ouncecake.cjs scripts/test-mintbrew-ouncecake.cjs scripts/test-ouncecake-exports.cjs scripts/test-ouncecake-recovery.cjs scripts/test-ouncecake-romfs.cjs scripts/test-ouncecake-codefs.cjs scripts/test-ouncecake-upstream.cjs
+  scripts/test-gui-ouncecake.cjs scripts/test-mintbrew-ouncecake.cjs scripts/test-ouncecake-exports.cjs scripts/test-ouncecake-recovery.cjs scripts/test-ouncecake-romfs.cjs scripts/test-ouncecake-codefs.cjs scripts/test-ouncecake-upstream.cjs scripts/test-ouncecake-saves.cjs scripts/test-ouncecake-save-profiles.cjs scripts/test-ouncecake-save-library.cjs
 shasum -a 256 -c assets/bootstrap.bas.sha256
 bash scripts/install-driver.sh --verify
 (cd vendor/ns2jb && shasum -a 256 -c SHA256SUMS >/dev/null)
