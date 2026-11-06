@@ -1,0 +1,3 @@
+- Add read-only HTTP/WebDAV save exports, including uninstalled games, bulk backups, profile names and labeled BCAT archives.
+- Use port 8081 and a short root URL for save downloads.
+- Add controller access to MistBrew Refresh, fix startup checks and simplify OunceCake's heading and status text.

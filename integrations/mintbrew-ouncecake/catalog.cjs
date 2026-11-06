@@ -5,6 +5,7 @@ function views(entries){
  const system=entries.filter(entry=>['system-program','system-data'].includes(entry.kind));
  const root=entries.filter(entry=>!['system-program','system-data'].includes(entry.kind));
  if(system.length)root.push({name:'[Folder] System Files ('+system.length+')',navigation:'system'});
+ root.splice(1,0,{name:'[Folder] Save Games',saveLibrary:true});
  return {root,system:[{name:'[..] Back',navigation:'root'},...system]};
 }
 function parts(entry){return [{name:'[..] Back',navigation:'root'},...['Base','Update','DLC','Additional Content'].map((name,i)=>({...entry,titleName:entry.titleName||entry.name,name,exportPart:['base','update','dlc','additional'][i]}))];}

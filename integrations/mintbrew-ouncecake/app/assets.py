@@ -14,8 +14,7 @@ atlas = Image.new('L', (1024, 1024))
 draw = ImageDraw.Draw(atlas)
 labels = [
     ('TITLE', 'OunceCake', 70),
-    ('SUBTITLE', 'Games, system titles and firmware', 30),
-    ('DISCOVER', 'Reading games and system titles...', 31),
+    ('DISCOVER', 'Reading games, saves, system titles & firmware...', 31),
     ('CHOOSE', 'Choose an export', 31),
     ('SYSTEM', 'System Files', 31),
     ('PREPARING', 'Preparing export...', 31),
@@ -24,6 +23,8 @@ labels = [
     ('ERROR', 'OunceCake could not start', 31),
     ('RETURN', 'Hold B or Minus to return to MistBrew', 25),
     ('SELECT', 'A Open   X Raw NCA   L/R Page', 25),
+    ('GAME_SELECT', 'A Open   X Raw NCA   Y Saves   L/R Page', 25),
+    ('SAVE_SELECT', 'A Open / export   B Back   L/R Page', 25),
     ('BACK', 'Press B to return to export list', 25),
 ]
 header = []
@@ -32,13 +33,13 @@ for name, label, size in labels:
     face = font(size)
     box = draw.textbbox((0, 0), label, font=face)
     width, height = box[2] - box[0], box[3] - box[1]
-    if width > 1016 or y + height > 500:
+    if width > 1016 or y + height > 628:
         raise SystemExit('label atlas overflow')
     draw.text((4 - box[0], y - box[1]), label, font=face, fill=255)
     header.append(f'const ivec4 TEXT_{name} = ivec4(4, {y}, {width}, {height});')
     y += height + 8
 
-cell_width, cell_height, glyph_y = 20, 32, 512
+cell_width, cell_height, glyph_y = 20, 32, 640
 ascii_font = font(24)
 for code in range(32, 128):
     x = (code - 32) % 16 * cell_width

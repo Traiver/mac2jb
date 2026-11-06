@@ -22,6 +22,8 @@ void main(){
    if(c.game.x>=c.game.y+8u)c.game.y=c.game.x-7u;
   }
   if((pressed&HB_X)!=0u&&c.reserved.y==0u){c.reserved.y=0x80000000u|(c.game.x+1u);c.game.z=1u;}
+  // Keep the existing launcher dispatch ABI; bit 30 is private to OunceCake.
+  if((pressed&HB_Y)!=0u&&payload.words[8]==1u&&c.reserved.y==0u){c.reserved.y=0xc0000000u|(c.game.x+1u);c.game.z=1u;}
   if((pressed&HB_A)!=0u&&c.reserved.y==0u){c.reserved.y=c.game.x+1u;c.game.z=1u;}
  }else {c.motion.w=0.0;c.piece.x=0;}
  if(status==1u&&payload.words[5]!=0u&&(pressed&HB_B)!=0u&&c.reserved.y==0u)c.reserved.y=0xffffffffu;

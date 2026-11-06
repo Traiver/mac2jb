@@ -1,5 +1,11 @@
 # Changelog
 
+## mac2jb v0.7.5 — 2026-11-06
+
+- Add read-only HTTP/WebDAV save exports, including uninstalled games, bulk backups, profile names and labeled BCAT archives.
+- Use port 8081 and a short root URL for save downloads.
+- Add controller access to MistBrew Refresh, fix startup checks and simplify OunceCake's heading and status text.
+
 ## mac2jb v0.7.4 — 2026-11-05
 
 - Hotfix: keep readable OunceCake exports when update manuals cannot mount, and clarify partial-export and license diagnostics.
