@@ -60,6 +60,13 @@ test('bulk cancellation removes the incomplete collection instead of publishing 
  const f=toolsFor(archives,{cancelAfter:()=>{cancelled=true;}});
  await assert.rejects(snapshotAll({...f,archives,directory,shouldStop:()=>cancelled}),{code:'FTP_CANCELLED'});assert.deepEqual(await fs.readdir(directory),[]);
 });
+test('bulk export refuses auxiliary and system archives before any native backup starts',async t=>{
+ const directory=await temp(t);
+ for(const bad of [{...archive(1),type:5},{...archive(1),type:3,titleId:'0400000000001000'}]){
+  const f=toolsFor([bad]);await assert.rejects(snapshotAll({...f,archives:[bad],directory}),/Only Account and Device game saves/);assert.equal(f.scans,0);
+ }
+ assert.deepEqual(await fs.readdir(directory),[]);
+});
 test('a changed archive index requires a fresh list instead of omitting new saves',async t=>{
  const directory=await temp(t),selected=[archive(1)],f=toolsFor([archive(1),archive(2)]);
  await assert.rejects(snapshotAll({...f,archives:selected,directory}),/inventory changed/);assert.deepEqual(await fs.readdir(directory),[]);

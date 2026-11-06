@@ -4,7 +4,7 @@ const {throwIfCancelled}=require('../../vendor/OunceCake/engine/protocol.cjs');
 const component=value=>String(value||'Unknown').replace(/[\\/<>:"|?*\x00-\x1f\x7f]/g,' ').trim().replace(/[. ]+$/,'').slice(0,80)||'Unknown';
 async function snapshotAll({attachment,archives,directory,shouldStop=()=>false,onProgress=()=>{},tools=require('./saves.cjs')}){
  if(!Array.isArray(archives)||!archives.length||archives.length>8192)throw Error('Invalid save collection inventory');
- for(const archive of archives)tools.validateArchive(archive);
+ for(const archive of archives){tools.validateArchive(archive);if(!tools.isGameSave(archive))throw Error('Only Account and Device game saves can be included in a collection');}
  if(new Set(archives.map(tools.identity)).size!==archives.length)throw Error('Repeated save collection archive');
  throwIfCancelled(shouldStop);
  const current=await tools.inventory({attachment,shouldStop}),present=new Set(current.map(tools.identity));

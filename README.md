@@ -377,6 +377,10 @@ with a browser or WinSCP (WebDAV, no TLS or credentials).
 `[Folder] Save Games` is the second OunceCake entry, directly below Firmware.
 It reads the console's complete User/SD-User save index independently of the
 installed-game catalog, so saves from uninstalled games remain accessible.
+Only persistent Account and shared Device archives are listed and exported;
+BCAT, temporary storage, cache and StreamPlay archives are excluded.
+Reserved system-title IDs are excluded as well. An unavailable game name does
+not hide a valid game save; uninstalled games can still appear by TitleID.
 Open a title folder to choose a profile/archive, or choose **Export All Saves**
 to prepare a single HTTP/WebDAV collection on the Mac. Names come from available
 console control data; missing names fall back to `Unknown title [TitleID]`.
@@ -393,7 +397,7 @@ Bulk preparation has a one-hour cooperative deadline and can be cancelled by
 holding B or Minus; cleanup waits for the current console request to settle.
 
 To export save data, close the game, highlight it in OunceCake and press **Y Saves**.
-Choose the profile name and archive (Account, shared Device, BCAT or Cache), then
+Choose the profile name and archive (Account or shared Device), then
 press **A**. OunceCake opens the selected archive read-only, copies every file to
 a private Mac backup and verifies its SHA-256 checksums. The download is enabled
 only after copying and native-handle cleanup have completed. No save files are

@@ -4,6 +4,14 @@ const fs=require('node:fs/promises'),path=require('node:path'),crypto=require('n
 const attr=require('../../vendor/ns2-savekit/tools/lib/save-attr.cjs');
 const {success,withCleanup,throwIfCancelled}=require('../../vendor/OunceCake/engine/protocol.cjs');
 const TYPES={1:'Account',2:'BCAT',3:'Device',4:'Temporary',5:'Cache',7:'StreamPlay'};
+// Persistent game progress: per-user Account saves and shared Device saves.
+// BCAT, Temporary, Cache and StreamPlay are auxiliary data, not this browser's scope.
+function isGameSave(a){
+ if(!a||![1,3].includes(a.type)||!/^(01|04)[0-9a-f]{14}$/.test(a.titleId))return false;
+ // Exclude the reserved system-title region. Switch application IDs start at
+ // 0100000000010000; Switch 2 game IDs use the 04 platform prefix.
+ return (BigInt('0x'+a.titleId)&0x00ffffffffffffffn)>=0x10000n;
+}
 const check=(v,m)=>{if(!v)throw Object.assign(Error(m),{code:'SAVE_EXPORT_FAILED'});};
 const safeName=name=>typeof name==='string'&&name.length>0&&!['.','..'].includes(name)&&!/[\\/\x00-\x1f\x7f]/.test(name);
 function parseRecord(bytes){
@@ -19,7 +27,7 @@ function validateArchive(a){
  return a;
 }
 const identity=a=>[a.id,a.space,a.type,a.rank,a.index,a.uid,a.titleId].join(':');
-async function inventory({attachment,titleId,shouldStop=()=>false}){
+async function inventory({attachment,titleId,shouldStop=()=>false,includeAuxiliary=false}){
  check(titleId===undefined||/^[0-9a-f]{16}$/.test(titleId),'Invalid save title ID');
  const {s,root,domain}=attachment,archives=[];
  check(!s.threads.size,'Save enumeration requires an idle attachment');
@@ -47,7 +55,7 @@ async function inventory({attachment,titleId,shouldStop=()=>false}){
     for(let i=0;i<count;i++){
      const a=parseRecord(bytes.subarray(i*0x60,(i+1)*0x60));
      check(a.space===space,'Save archive space differs from its index');
-     if((titleId===undefined||a.titleId===titleId)&&Object.hasOwn(TYPES,a.type))archives.push(validateArchive(a));
+     if((titleId===undefined||a.titleId===titleId)&&Object.hasOwn(TYPES,a.type)&&(includeAuxiliary||isGameSave(a)))archives.push(validateArchive(a));
     }
     if(count<64)return;
    }
@@ -67,7 +75,7 @@ async function hashFile(file){
  return hash.digest('hex');
 }
 async function snapshot({attachment,archive,directory,shouldStop=()=>false,onProgress=()=>{},verifiedInventory}){
- validateArchive(archive);throwIfCancelled(shouldStop);
+ validateArchive(archive);check(isGameSave(archive),'Only Account and Device game saves can be exported');throwIfCancelled(shouldStop);
  const {s,root,domain,filesystem}=attachment;
  // Recheck the exact index entry before opening; never guess another user/archive.
  const current=verifiedInventory||await inventory({attachment,titleId:archive.titleId,shouldStop});
@@ -128,6 +136,6 @@ async function snapshot({attachment,archive,directory,shouldStop=()=>false,onPro
  }catch(error){complete=false;throw error;}
  finally{if(folder&&!complete)await fs.rm(folder,{recursive:true,force:true});}
 }
-module.exports={inventory,snapshot,label,parseRecord,validateArchive,identity,safeName,hashFile,
+module.exports={inventory,snapshot,label,parseRecord,validateArchive,identity,safeName,hashFile,isGameSave,
  withProfiles:require('./save-profiles.cjs').decorate,
  titleNames:require('./save-library.cjs').titleNames,snapshotAll:require('./save-collection.cjs').snapshotAll};

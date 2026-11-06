@@ -41,6 +41,20 @@ test('unfiltered FS inventory includes saves for titles absent from the installe
  const all=await saves.inventory({...f});assert.deepEqual(new Set(all.map(a=>a.titleId)),new Set([archive.titleId,removed.titleId]));
  assert.deepEqual([...f.attachment.s.handles],[1]);assert.ok(f.calls.every(c=>[61,0].includes(c.cmd)));
 });
+test('game save inventory excludes auxiliary archives and retains shared progress of uninstalled games',async()=>{
+ const rows=[archive,{...archive,id:'124',type:3,uid:'0'.repeat(32),titleId:'0400123456790000'},
+  ...[2,4,5,7].map((type,i)=>({...archive,id:String(200+i),type,titleId:'0400123456700000'})),
+  {...archive,id:'300',type:3,titleId:'0400000000001000'}, {...archive,id:'301',type:1,titleId:'0100000000001000'}];
+ const f=attached({count:rows.length,recordBytes:Buffer.concat(rows.map(record))});
+ const all=await saves.inventory({...f});assert.deepEqual(all.map(a=>a.type),[3,1]);
+ const audit=attached({count:rows.length,recordBytes:Buffer.concat(rows.map(record))});
+ assert.equal((await saves.inventory({...audit,includeAuxiliary:true})).length,rows.length);
+ assert.deepEqual([...f.attachment.s.handles],[1]);
+});
+test('game ID filtering preserves first Switch application and Switch 2 game saves',()=>{
+ for(const titleId of ['0100000000010000','0400000000010000','0400b5b029444000'])assert.equal(saves.isGameSave({...archive,titleId}),true);
+ for(const titleId of ['0000000000000000','0100000000001000','0400000000000010','4200000000000001'])assert.equal(saves.isGameSave({...archive,titleId}),false);
+});
 test('an absent SD card preserves NAND saves; other SD errors never become an empty success',async()=>{
  for(const result of [0x8ed37e02,0x320002]){
   const f=attached(),original=f.attachment.s.ipc;
