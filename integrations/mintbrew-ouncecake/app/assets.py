@@ -14,8 +14,7 @@ atlas = Image.new('L', (1024, 1024))
 draw = ImageDraw.Draw(atlas)
 labels = [
     ('TITLE', 'OunceCake', 70),
-    ('SUBTITLE', 'Games, system titles and firmware', 30),
-    ('DISCOVER', 'Reading games and system titles...', 31),
+    ('DISCOVER', 'Reading games, saves, system titles & firmware...', 31),
     ('CHOOSE', 'Choose an export', 31),
     ('SYSTEM', 'System Files', 31),
     ('PREPARING', 'Preparing export...', 31),

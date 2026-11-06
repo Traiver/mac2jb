@@ -46,7 +46,6 @@ void main(){
  col+=vec3(.55,.75,.95)*fill(panel)*pow(1.0-p.y/1080.0,3.0)*.035;
  col=mix(col,mist,line(panel,1.3)*.4);
  col=mix(col,ink,text(p,vec2(190,110),TEXT_TITLE));
- col=mix(col,muted,text(p,vec2(195,198),TEXT_SUBTITLE));
  uint status=payload.words[0]==0x31435a4fu?payload.words[1]:0u;
  if(status==1u){
   if(payload.words[4]>0u)col=mix(col,vec3(.99,.64,.57),messagePixel(p,vec2(195,270)));
