@@ -911,3 +911,20 @@ test('OunceCake large catalog survives the helper output boundary',{timeout:1000
   const session=ounceFixture(t,{catalog:games});const event=await ounceLaunch(session);
   assert.deepEqual(event.games,games);session.send({action:'finish'});assert.equal((await session.done).code,0);
 });
+
+test('save import bridge forwards only a MintBrew request under its private run folder',{timeout:10000},async t=>{
+ const session=fixture(t,{expectHomebrew:true});
+ fs.writeFileSync(path.join(session.root,'scripts/gui-mintbrew.cjs'),`
+  const path=require('path'),nonce='a'.repeat(48),root=path.resolve(__dirname,'..');
+  const emit=value=>console.log('MAC2JB_HOMEBREW '+JSON.stringify(value));
+  emit({type:'started'});emit({type:'running'});
+  emit({type:'ouncecake-import-request',nonce,path:'/tmp/rogue',requestFolder:'/tmp/rogue/save-imports/request-'+nonce});
+  const directory=path.join(root,'runs/mintbrew-test');
+  emit({type:'ouncecake-import-request',nonce,path:directory,requestFolder:path.join(directory,'save-imports','request-'+nonce)});
+  process.on('SIGTERM',()=>{emit({type:'stopped'});process.exit(0);});setInterval(()=>{},1000);
+ `);
+ await session.wait('post-run-ready');session.send({action:'post-run',keepRPC:true,dumpFirmware:false});await session.wait('rpc-held');
+ session.send({action:'launch-mintbrew'});const event=await session.wait('ouncecake-import-request');
+ assert.equal(event.requestFolder,path.join(session.root,'runs/mintbrew-test/save-imports/request-'+'a'.repeat(48)));
+ session.send({action:'finish'});assert.equal((await session.done).code,0);
+});

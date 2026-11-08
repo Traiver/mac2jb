@@ -468,6 +468,16 @@ async function main(args = process.argv.slice(2), options = {}) {
         }catch(error){fail(error);}
         return;
       }
+      if(selected.id==='mintbrew'&&role==='graphics'&&line.startsWith('MintBrew: MAC2JB_OUNCECAKE_IMPORT ')){
+        try{
+          const request=JSON.parse(line.slice('MintBrew: MAC2JB_OUNCECAKE_IMPORT '.length));
+          check(/^[a-f0-9]{48}$/.test(request.nonce)&&typeof request.requestFolder==='string'&&
+            request.requestFolder.startsWith(path.resolve(directory)+'/')&&
+            request.requestFolder.endsWith('/save-imports/request-'+request.nonce),'Invalid save import request');
+          safeEmit('ouncecake-import-request',request);
+        }catch(error){fail(error);}
+        return;
+      }
       state.output=(state.output+line+'\n').slice(-32768);
       if(readyText && line.trim()===readyText){state.ready=true;readyResolve();}
       if(line.trim()===selected.frameReady)state.frameReady=true;

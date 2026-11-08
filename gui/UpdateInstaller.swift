@@ -121,10 +121,11 @@ enum UpdateInstaller {
                   decoded.parentPID > 1, decoded.parentPID != getpid() else {
                 throw UpdateFailure("The private update folder or process identity is invalid.")
             }
-            write("Waiting for mac2jb to close before updating to \(decoded.version).")
+            let release = AppBuildIdentity.releaseLabel(decoded.version, build: decoded.build)
+            write("Waiting for mac2jb to close before updating to \(release).")
             try waitForExit(decoded.parentPID)
             try install(decoded)
-            write("Installed \(decoded.version). Previous app preserved at: \(decoded.backup.path)")
+            write("Installed \(release). Previous app preserved at: \(decoded.backup.path)")
             do {
                 _ = try UpdatePackage.run("/usr/bin/open", ["-n", decoded.destination.path])
                 write("Update completed; mac2jb reopened.")

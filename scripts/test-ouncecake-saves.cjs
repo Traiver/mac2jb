@@ -116,8 +116,8 @@ test('download host uses a Mac interface on the console subnet',()=>{
  assert.equal(server.hostAddress('192.168.1.8',{en0:[{family:'IPv4',address:'192.168.1.2',netmask:'255.255.255.0',internal:false}]}),'192.168.1.2');
  assert.throws(()=>server.hostAddress('10.0.0.2',{}),/No Mac IPv4/);
 });
-function request(url,{method='GET',headers={},suffix=''}={}){return new Promise((resolve,reject)=>{
- const u=new URL(url),req=http.request({hostname:u.hostname,port:u.port,path:u.pathname+suffix,method,headers},res=>{const chunks=[];res.on('data',b=>chunks.push(b));res.on('end',()=>resolve({status:res.statusCode,headers:res.headers,body:Buffer.concat(chunks).toString()}));});req.on('error',reject);req.end();});}
+function request(url,{method='GET',headers={},suffix='',body}={}){return new Promise((resolve,reject)=>{
+ const u=new URL(url),req=http.request({hostname:u.hostname,port:u.port,path:u.pathname+suffix,method,headers},res=>{const chunks=[];res.on('data',b=>chunks.push(b));res.on('end',()=>resolve({status:res.statusCode,headers:res.headers,body:Buffer.concat(chunks).toString()}));});req.on('error',reject);req.end(body);});}
 test('read-only HTTP/WebDAV serves the verified snapshot, ranges and Unicode; rejects writes and traversal',async t=>{
  const folder=await directory(t),f=attached(),backup=await saves.snapshot({...f,archive,directory:folder});
  const name='Game [id]',download=await server.start({...backup,name,address:'127.0.0.1',port:0});t.after(()=>download.close());
@@ -159,4 +159,79 @@ test('save button request dispatch is separate from normal, raw and Back request
  const events=[],rpc={async write(){events.push('clear');}},service={select:i=>events.push(['select',i]),selectRaw:i=>events.push(['raw',i]),back:()=>events.push('back')};
  for(const req of [1,0x80000002,0xc0000003,0xffffffff])await dispatchServiceRequest(rpc,100,service,req);
  assert.deepEqual(events,['clear',['select',0],'clear',['raw',1],'clear',['raw',0x40000002],'clear','back']);
+});
+
+test('single-save DAV groups both folders under the title and stages nested PUTs separately',async t=>{
+ const dir=await directory(t),selected={...archive,index:0},f=attached({recordBytes:record(selected)});
+ const backup=await saves.snapshot({...f,archive:selected,directory:dir});
+ const name='ゲーム & Game ['+selected.titleId+']';
+ const dav=await server.start({...backup,name,address:'127.0.0.1',port:0,uploadDirectory:dir,maxUploadBytes:12});t.after(()=>dav.close());
+ const title=encodeURIComponent(name)+'/';
+ const remote=title+'Import/';
+ const original=title+'Export/files/'+encodeURIComponent('データ')+'/slot.bin';
+ const edited=remote+encodeURIComponent('データ')+'/slot.bin';
+ const put=(suffix,body)=>request(dav.url,{method:'PUT',suffix,body});
+ assert.equal((await put(original,'changed')).status,405);
+ assert.equal((await put('import-000000000000000000000000/slot','changed')).status,404);
+ assert.equal(new URL(dav.url).pathname,'/');
+ const root=await request(dav.url,{method:'PROPFIND',headers:{Depth:'1'}});
+ assert.ok(root.body.includes('<d:href>/'+title+'</d:href>'));
+ assert.doesNotMatch(root.body,/Export\/|Import\//);
+ const listing=await request(dav.url,{method:'PROPFIND',suffix:title,headers:{Depth:'1'}});
+ assert.ok(listing.body.includes('<d:href>/'+title+'Export/</d:href>'));
+ assert.ok(listing.body.includes('<d:href>/'+remote+'</d:href>'));
+ const recursive=await request(dav.url,{method:'PROPFIND',headers:{Depth:'infinity'}});
+ assert.ok(recursive.body.includes('<d:href>/'+remote+'</d:href>'));
+ const browser=await request(dav.url,{suffix:title});
+ assert.ok(browser.body.includes('href="/'+title+'Export/"')&&browser.body.includes('href="/'+remote+'"'));
+ assert.equal((await request(dav.url,{method:'PROPFIND',suffix:remote,headers:{Depth:'1'}})).status,207);
+ assert.equal((await put(edited,'changed')).status,409);
+ assert.equal((await request(dav.url,{method:'MKCOL',suffix:remote+encodeURIComponent('データ')+'/'})).status,201);
+ assert.equal((await put(edited,'changed')).status,201);
+ assert.equal((await put(edited,'changed again')).status,413);
+ assert.throws(()=>dav.freezeUpload(),/Retry failed/);
+ assert.equal((await put(edited,'edited')).status,204);
+ assert.equal((await put(remote+'../escaped','no')).status,400);
+ assert.equal((await request(dav.url,{method:'DELETE',suffix:edited})).status,405);
+ assert.equal((await request(dav.url,{suffix:original})).body,'abc');
+ assert.equal((await request(dav.url,{suffix:edited})).body,'edited');
+ const source=dav.freezeUpload();
+ assert.equal(await fs.readFile(path.join(source,'files','データ','slot.bin'),'utf8'),'edited');
+ assert.deepEqual(JSON.parse(await fs.readFile(path.join(source,'manifest.json'),'utf8')),backup.manifest);
+ assert.equal((await put(edited,'late')).status,403);
+ await dav.resetUpload();
+ assert.equal((await request(dav.url,{suffix:edited})).status,404);
+ await assert.rejects(fs.stat(source),{code:'ENOENT'});
+ assert.equal((await request(dav.url,{suffix:original})).body,'abc');
+ assert.equal((await request(dav.url,{method:'PROPFIND',suffix:remote})).status,207);
+ await dav.close();
+});
+test('aborted and unfinished uploads cannot be reviewed; cancellation removes their inbox',async t=>{
+ const dir=await directory(t),selected={...archive,index:0};
+ const backup=await saves.snapshot({...attached({recordBytes:record(selected)}),archive:selected,directory:dir});
+ const dav=await server.start({...backup,name:'Game',address:'127.0.0.1',port:0,uploadDirectory:dir});t.after(()=>dav.close());
+ const remote='Game/Import/';
+ async function begin(remote){
+  const u=new URL(remote+'slot',dav.url);
+  const req=http.request(u,{method:'PUT',headers:{'Content-Length':64}});
+  const closed=new Promise(resolve=>req.once('error',resolve));
+  req.write('partial');
+  for(let i=0;i<100;i++){
+   try{dav.freezeUpload();assert.fail('unfinished upload was sealed');}catch(error){if(/transfers to finish/.test(error.message))return {req,closed};}
+   await new Promise(resolve=>setTimeout(resolve,5));
+  }
+  req.destroy();throw Error('The upload never reached the server');
+ }
+ const broken=await begin(remote);
+ broken.req.destroy();await broken.closed;
+ for(let i=0;i<100;i++){
+  try{dav.freezeUpload();assert.fail('aborted upload was sealed');}catch(error){if(/Retry failed/.test(error.message))break;if(i===99)throw error;}
+  await new Promise(resolve=>setTimeout(resolve,5));
+ }
+ assert.equal((await request(dav.url,{suffix:remote+'slot'})).status,404);
+ await dav.resetUpload();
+ const inflight=await begin(remote);
+ await dav.resetUpload();await inflight.closed;
+ assert.equal((await fs.readdir(dir)).filter(name=>name.startsWith('inbox-')).length,1);
+ assert.equal((await request(dav.url,{suffix:'Game/Export/manifest.json'})).status,200);
 });

@@ -31,6 +31,7 @@ function fixture(t,options={}){
       'else process.exit(0);',
       '}else{',
       "if(item.role==='graphics'){fs.writeFileSync(path.join(directory,'launcher-auto-loop.json'),JSON.stringify({session,threadRunning:true}));console.log(options.frameMarker||frameReady);}",
+      "if(item.role==='graphics'&&options.importRequest){const nonce='a'.repeat(48);console.log('MintBrew: MAC2JB_OUNCECAKE_IMPORT '+JSON.stringify({nonce,requestFolder:path.join(directory,'save-imports','request-'+nonce)}));}",
       "if(item.role==='audio')fs.writeFileSync(path.join(directory,'game-audio.json'),JSON.stringify({session}));",
       "if(item.role==='music')fs.writeFileSync(path.join(directory,'music.json'),JSON.stringify({session,uploadVerified:true,ready:true,playing:true}));",
       "process.on('SIGTERM',()=>{log({event:'stop',role:item.role});setTimeout(()=>{",
@@ -419,4 +420,11 @@ test('SaveKit-patched '+hostId+' run is trusted only with its pinned source and 
   fs.copyFileSync(result,path.join(forgedRun,'result.json'));
   fs.copyFileSync(path.join(directory,'connection.json'),path.join(forgedRun,'connection.json'));
   await assert.rejects(validateRun(root,forgedRun,verified),/patched host source contains unexpected files/);
+});
+
+test('MintBrew forwards OunceCake import requests as structured events from its graphics owner',async t=>{
+ const f=fixture(t,{application:'mintbrew',importRequest:true});await main([f.directory],f.api);
+ const event=f.events.find(e=>e.type==='ouncecake-import-request');assert.ok(event);assert.equal(event.nonce,'a'.repeat(48));
+ assert.equal(event.requestFolder,path.join(event.path,'save-imports','request-'+event.nonce));
+ assert.ok(!f.events.some(e=>e.type==='progress'&&e.message.includes('MAC2JB_OUNCECAKE_IMPORT')));
 });

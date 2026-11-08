@@ -6,15 +6,25 @@ enum AppBuildIdentity {
     }
 
     static var version: String {
-        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.7.5"
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.7.6"
+    }
+
+    static var buildNumber: Int? {
+        guard let value = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String else { return nil }
+        return try? UpdateBuild.parse(value)
+    }
+
+    static func releaseLabel(_ version: String, build: Int?) -> String {
+        guard let build, build > 0 else { return "v\(version)" }
+        return "v\(version) · Build \(build)"
     }
 
     static var versionLabel: String {
-        isTestBuild ? "v\(version) · test build" : "v\(version)"
+        releaseLabel(version, build: buildNumber) + (isTestBuild ? " · test build" : "")
     }
 
     static var diagnosticLabel: String {
-        isTestBuild ? "mac2jb \(version) test build" : "mac2jb \(version)"
+        "mac2jb \(versionLabel)"
     }
 
     static let updatesDisabledMessage = "Updates are disabled for this local test build."

@@ -105,6 +105,8 @@ private struct GUIEvent: Decodable {
     let remainingMs: Double?
     let durationMs: Double?
     let watchProgress: StremioWatchProgress?
+    let requestFolder: String?
+    let nonce: String?
     let games: [OunceCakeGame]?
     let modules: [IZlauncherModule]?
     let host: String?
@@ -287,6 +289,8 @@ private struct GUIEvent: Decodable {
     private var hostCompleted = false
     private var generation = UUID()
     private var runFolder: URL?
+    @Published var ounceCakeImport: OunceCakeImportContext?
+    @Published private(set) var webSaveImportID: String?
     private var sessionLog: FileHandle?
     private var hostSessionLog: FileHandle?
     private var usbSessionLog: FileHandle?
@@ -426,13 +430,13 @@ private struct GUIEvent: Decodable {
         (!savekitChoiceStarted || savekitChoiceFinished) && !sdBusy && !sdRunning
     }
     var canStopCurrentHomebrew: Bool {
-        postRun.canStopHomebrew && !homebrewStopPending && hostProcess?.isRunning == true && hostInput != nil
+        webSaveImportID == nil && postRun.canStopHomebrew && !homebrewStopPending && hostProcess?.isRunning == true && hostInput != nil
     }
     var canLaunchNativeHBLauncher: Bool {
         canLaunchHomebrew && activeHost.supportsNativeHBLauncher && nativeHBLauncherRuntimeAvailable
     }
     var canDumpSystemCode: Bool {
-        activeRunMode != .seedsowSave && activeSessionSupportsHomebrew && postRun.canDumpSystemCode &&
+        webSaveImportID == nil && activeRunMode != .seedsowSave && activeSessionSupportsHomebrew && postRun.canDumpSystemCode &&
         hostProcess?.isRunning == true && hostInput != nil && runFolder != nil && !sdBusy && !sdRunning
     }
     var saveKitToolsAvailableInRun: Bool {
@@ -572,12 +576,23 @@ private struct GUIEvent: Decodable {
                 let override = ProcessInfo.processInfo.environment["MAC2JB_SESSION_PARENT"].flatMap {
                     $0.isEmpty ? nil : URL(fileURLWithPath: $0, isDirectory: true)
                 }
-                let prepared = try await Task.detached(priority: .userInitiated) {
-                    try BundledRuntime.prepare(sessionParent: override, host: host)
+                let (prepared, cleanupMessage) = try await Task.detached(priority: .userInitiated) {
+                    let runtime = try BundledRuntime.prepare(sessionParent: override, host: host)
+                    var message: String?
+                    if override == nil {
+                        do {
+                            let count = try SessionDataCleanup.pruneOldSessions(in: runtime.root.deletingLastPathComponent())
+                            if count > 0 { message = "Removed \(count) old session folder(s)." }
+                        } catch {
+                            message = "Could not finish removing old sessions: \(error.localizedDescription)"
+                        }
+                    }
+                    return (runtime, message)
                 }.value
                 runtime = prepared
                 openSessionLog(in: prepared.root)
                 append("\(host.label) offline runtime prepared. Session files are private to your account.")
+                if let cleanupMessage { append(cleanupMessage) }
                 // Keep a successfully prepared runtime available for retry,
                 // but never undo a cancellation while extraction was running.
                 guard phase == .preparing else { return }
@@ -963,6 +978,7 @@ private struct GUIEvent: Decodable {
     }
 
     func cancel() {
+        guard webSaveImportID == nil else { return }
         // Quit also calls cancel, so release the assertion even if the phase
         // has already moved to a terminal state.
         if hostProcess == nil { endSessionActivity() }
@@ -1223,7 +1239,7 @@ private struct GUIEvent: Decodable {
     }
 
     func finishPostRun() {
-        guard !savekitBusy, postRun.canFinish,
+        guard webSaveImportID == nil, !savekitBusy, postRun.canFinish,
               sendHostControl(["action": "finish"]) else { return }
         postRun.finish()
         izlauncherPanelURL = nil; izlauncherPanelMessage = ""; izlauncherPanelChecking = false
@@ -1613,6 +1629,25 @@ private struct GUIEvent: Decodable {
             homebrewMessage = event.message ?? "The tool could not confirm that its server stopped safely."
             append(homebrewMessage, channel: .host)
             presentPostRunState()
+            return
+        }
+        if event.type == "ouncecake-import-request" {
+            guard role == "host", postRun.homebrewAttempted, homebrewApp == .mintBrew,
+                  let root = runtime?.root, let folder = sessionURL(event.requestFolder), let nonce = event.nonce else { return }
+            do {
+                let context = try OunceCakeImportContext.load(root: root, folder: folder, nonce: nonce)
+                if context.request.transport == "webdav" {
+                    guard webSaveImportID != context.id else { return }
+                    webSaveImportID = context.id
+                    let observer = OunceCakeImportModel(context: context) { [weak self] message in
+                        guard let self, self.webSaveImportID == context.id else { return }
+                        self.webSaveImportID = nil
+                        self.append(message, channel: .host)
+                    }
+                    observer.start()
+                } else { ounceCakeImport = context }
+            }
+            catch { append(error.localizedDescription, channel: .host) }
             return
         }
         if event.type == "account-progress" {

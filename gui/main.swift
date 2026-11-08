@@ -115,6 +115,7 @@ if CommandLine.arguments.contains("--self-test") {
 }
 
 struct Mac2jbApp: App {
+    @NSApplicationDelegateAdaptor(Mac2jbApplicationDelegate.self) private var applicationDelegate
     @StateObject private var model = SessionModel()
     @StateObject private var updater = AppUpdater()
     var body: some Scene {

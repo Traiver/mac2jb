@@ -8,6 +8,7 @@ const catalog=require('./catalog.cjs');
 const saveLibrary=require('./save-library.cjs');
 const layout=require('../../vendor/MintBrew/sdk/host/layout.cjs');
 const {runPreparation,canRawFallback,DEFAULT_TIMEOUT_MS}=require('../../vendor/OunceCake/engine/preparation.cjs');
+const {titleLabel}=require('../../vendor/OunceCake/engine/exports.cjs');
 const runFile=promisify(execFile);
 const LARGE_INDEX_BYTES=8*1024*1024;
 const check=(value,message)=>{if(!value)throw Error(message);};
@@ -34,7 +35,7 @@ function ipv4(data){
 }
 
 function create({rpc,menu,gpu,app,directory,root,runDirectory,sourceSession,
- onProgress=()=>{},onFatal=()=>{},onGameList=async()=>{},modules,verifyHeld,rasterGames,liveCheck,saveTools=require('./saves.cjs'),saveServer=require('./save-server.cjs'),preparationTimeoutMs=DEFAULT_TIMEOUT_MS}={}){
+ onProgress=()=>{},onFatal=()=>{},onGameList=async()=>{},modules,verifyHeld,rasterGames,liveCheck,saveImporter=require('./save-import.cjs'),saveTools=require('./saves.cjs'),saveServer=require('./save-server.cjs'),preparationTimeoutMs=DEFAULT_TIMEOUT_MS}={}){
  check(rpc&&menu&&gpu&&app&&typeof directory==='string'&&typeof root==='string'&&
   typeof runDirectory==='string'&&typeof sourceSession==='string',
   'OunceCake requires the held MintBrew session');
@@ -55,14 +56,16 @@ function create({rpc,menu,gpu,app,directory,root,runDirectory,sourceSession,
  let task,attachment,server,run,games=[],failure,closing,nativeImage,baselineHandles;
  let allEntries=[],catalogs,view='root',generation=0,focus=0,partTitle,saveTitle,titleVisible=false;
  let libraryArchives=[],libraryGroups=[],libraryPage=0,archiveRows=[],saveParent='root';
+ let importRequest;
+ const importFiles=require('./save-import-files.cjs');
  const largeTitles=new Set();
  const report={session:rpc.a.session,sourceSession,started:new Date().toISOString(),status:'reading',
   resourcesRetained:true};
  const save=()=>fs.writeFile(path.join(directory,'mintbrew-ouncecake.json'),
   JSON.stringify(report,null,2)+'\n',{mode:0o600});
- const publish=async(state,message='',count=games.length)=>{
+ const publish=async(state,message='',count=games.length,notice='')=>{
   status=state;report.status=Object.keys(protocol.STATES).find(key=>protocol.STATES[key]===state);
-  await rpc.write(mapped,protocol.header(state,count,message,generation,view!=='root',focus,titleVisible&&(state!==protocol.STATES.catalog||['parts','saves','save-games'].includes(view)),['saves','save-games'].includes(view)?2:view==='root'||view==='parts'?1:0));await save();
+  await rpc.write(mapped,protocol.header(state,count,message,generation,view!=='root',focus,titleVisible&&(state!==protocol.STATES.catalog||['parts','saves','save-games'].includes(view)),['saves','save-games'].includes(view)?2:view==='root'||view==='parts'?1:0,notice));await save();
  };
  const live=liveCheck||(async()=>{
   try{
@@ -110,7 +113,7 @@ function create({rpc,menu,gpu,app,directory,root,runDirectory,sourceSession,
  async function releaseSelectedHandles(){
   check(attachment&&baselineHandles,'OunceCake game attachment is unavailable');
   try{
-   check(!server,'OunceCake HTTP/WebDAV must stop before game handles close');
+   check(!server||server.kind==='local-save','OunceCake native HTTP/WebDAV must stop before game handles close');
    check(attachment.s.threads.size===0,'OunceCake game worker did not stop');
    for(const handle of [...attachment.s.handles].reverse()){
     if(!baselineHandles.has(handle))await attachment.s.close(handle);
@@ -223,6 +226,7 @@ function create({rpc,menu,gpu,app,directory,root,runDirectory,sourceSession,
   try{await operation();}
   catch(error){
    if(blocked(error))throw error;
+   await stopServer();
    await releaseSelectedHandles();
    if(stopping)return;
    selected=false;report.error=error.message;report.titleId=null;
@@ -231,6 +235,7 @@ function create({rpc,menu,gpu,app,directory,root,runDirectory,sourceSession,
   }
  }
  async function selectSaves(index){
+  if(started&&!stopping&&[protocol.STATES.reading,protocol.STATES.catalog].includes(status))await task;
   check(started&&!stopping&&!selected&&status===protocol.STATES.catalog&&Number.isInteger(index)&&index>=0&&index<games.length,'OunceCake save selection is unavailable');
   const entry=games[index];
   if(entry.saveLibrary)return openSaveLibrary();
@@ -297,24 +302,169 @@ function create({rpc,menu,gpu,app,directory,root,runDirectory,sourceSession,
      directory:path.join(directory,'save-backups'),shouldStop,onProgress}),
      {timeoutMs:batch?Math.max(preparationTimeoutMs,3600000):preparationTimeoutMs,shouldStop:()=>stopping,onProgress});
     await releaseSelectedHandles();
-    report.saveBackup={folder:backup.folder,files:backup.manifest.files,bytes:backup.manifest.bytes,
+    report.saveBackup={folder:backup.folder,files:backup.manifest.files,bytes:backup.manifest.bytes,titleName:entry.titleName||entry.name,
      ...(batch?{archives:backup.manifest.archives.length,partial:backup.manifest.partial,failed:backup.manifest.failed}:{selection:entry.saveArchive})};
     await save();onProgress('OunceCake: Verified save backup: '+backup.folder);
     if(stopping)return;
-    const name=batch?(backup.manifest.partial?'All Saves (partial)':'All Saves'):(entry.titleName.replace(/[\\/<>:"|?*\x00-\x1f]/g,' ').trim().slice(0,100)||'Game')+' ['+entry.titleId+']';
-    server=await saveServer.start({...backup,name,address});report.httpURL=server.url;
-    await publish(protocol.STATES.running,(backup.manifest.partial?'PARTIAL ':'')+server.url);
-    onProgress('OunceCake: Save download (Mac): '+server.url);
+    const name=batch?(backup.manifest.partial?'All Saves (partial)':'All Saves'):titleLabel(entry);
+    let uploadDirectory;
+    if(!batch){
+     try{importFiles.supported(entry.saveArchive);uploadDirectory=path.join(directory,'save-imports');}catch{/* Export-only archive. */}
+    }
+    if(uploadDirectory)await fs.mkdir(uploadDirectory,{recursive:true,mode:0o700});
+    server=await saveServer.start({...backup,name,address,uploadDirectory});report.httpURL=server.url;
+    if(server.combined)await showTransfer('Drag edited files to Import/. Close the game before pressing A.');
+    else await publish(protocol.STATES.running,(backup.manifest.partial?'PARTIAL ':'')+server.url);
+    onProgress('OunceCake: Save transfer (Mac): '+server.url);
    });
   })());
  }
+ async function requestImport(entry){
+  selected=true;const previous=task;
+  track((async()=>{await previous;if(stopping)return;
+   await saveOperation(async()=>{
+    importFiles.supported(entry.saveArchive);
+    await publish(protocol.STATES.preparing,'Checking the selected save archive for import...');
+    check(await live(),'The held RPC session ended before import preparation');
+    const current=await saveTools.inventory({attachment,titleId:entry.saveArchive.titleId,shouldStop:()=>stopping});
+    check(current.some(a=>require('./saves.cjs').identity(a)===require('./saves.cjs').identity(entry.saveArchive)),'Selected save archive is no longer installed');
+    await releaseSelectedHandles();if(stopping)return;
+    importRequest=await importFiles.create({directory:path.join(directory,'save-imports'),archive:entry.saveArchive,
+     titleName:entry.titleName||entry.name,sourceSession});
+    report.saveImport={phase:'waiting',request:importRequest.folder,selection:entry.saveArchive};
+    await importFiles.atomic(path.join(importRequest.folder,'result.json'),{phase:'waiting'});
+    await publish(protocol.STATES.importing,'Choose and confirm a save backup in mac2jb on your Mac. B: Cancel');
+    notifyImport(importRequest);
+   });
+  })());
+ }
+ async function cancelImport(message='Save import cancelled.'){
+  const pending=importRequest;importRequest=null;
+  if(pending){await importFiles.atomic(path.join(pending.folder,'result.json'),{phase:'cancelled',message});
+   // Invalidate even a delayed Mac confirmation without touching console data.
+   await fs.rm(path.join(pending.folder,'request.json'),{force:true});}
+  selected=false;if(!stopping){await publish(protocol.STATES.catalog,message);await resumeTitleFtp();}
+ }
+ function notifyImport(pending){
+  onProgress('MAC2JB_OUNCECAKE_IMPORT '+JSON.stringify({requestFolder:pending.folder,nonce:pending.request.nonce}));
+ }
+ function showTransfer(message){
+  return publish(protocol.STATES.saveTransfer,server.url,games.length,message);
+ }
+ async function submitWebImport(){
+  await task;
+  if(stopping||status!==protocol.STATES.saveTransfer)return;
+  let source;
+  try{source=server.freezeUpload();}
+  catch(error){await showTransfer(error.message);return;}
+  await publish(protocol.STATES.preparing,'Checking the uploaded files on the Mac...');
+  const previous=task;
+  track((async()=>{await previous;
+   let pending,plan;
+   try{
+    const archive=report.saveBackup.selection;
+    pending=await importFiles.create({directory:path.join(directory,'save-imports'),archive,
+     titleName:report.saveBackup.titleName||archive.titleId,sourceSession,transport:'webdav'});
+    plan=await importFiles.stage({folder:pending.folder,source});
+    if(!stopping){
+     report.saveImport={phase:'checking',request:pending.folder,selection:archive};
+     await importFiles.atomic(path.join(pending.folder,'result.json'),{phase:'checking'});
+     notifyImport(pending);
+    }
+   }catch(error){
+    if(pending)await fs.rm(path.join(pending.folder,'request.json'),{force:true});
+    if(!stopping){await server.resetUpload();await showTransfer(error.message);}
+    return;
+   }
+   await performConfirmedImport(pending,plan.digest,{web:true});
+  })());
+ }
+ async function pendingImport(){
+  if(!importRequest||stopping||status!==protocol.STATES.importing)return false;
+  if(Date.now()>=importRequest.request.expires)return true;
+  return Boolean(await fs.lstat(path.join(importRequest.folder,'command.json')).catch(error=>{if(error.code!=='ENOENT')throw error;}));
+ }
+ async function consumeImport(){
+  if(!await pendingImport())return;
+  if(Date.now()>=importRequest.request.expires){await cancelImport('Save import request expired.');return;}
+  const pending=importRequest;
+  let command;
+  try{
+   command=await importFiles.json(path.join(pending.folder,'command.json'));
+   check(command.nonce===pending.request.nonce&&['confirm','cancel'].includes(command.action),'Invalid save import confirmation');
+   if(command.action==='cancel'){await cancelImport();return;}
+   await importFiles.planAt(pending.folder,command.digest);
+  }catch(error){await cancelImport(error.message);return;}
+  importRequest=null;
+  const previous=task;
+  track((async()=>{await previous;await performConfirmedImport(pending,command.digest);})());
+ }
+ async function performConfirmedImport(pending,digest,{web=false}={}){
+   if(stopping){
+    await importFiles.atomic(path.join(pending.folder,'result.json'),{phase:'cancelled'});
+    await fs.rm(path.join(pending.folder,'request.json'),{force:true});
+    return;
+   }
+   await saveOperation(async()=>{
+    let result;
+    try{
+     if(!await live()){
+      await importFiles.atomic(path.join(pending.folder,'result.json'),{phase:'failed',message:'The held RPC session ended before save import.',writeMayHaveOccurred:false});
+      throw Error('The held RPC session ended before save import');
+     }
+     await publish(protocol.STATES.preparing,'Importing save. Keep the game closed. Do not disconnect.');
+     result=await saveImporter.restore({attachment,archive:pending.request.archive,
+      folder:pending.folder,digest,confirmed:true,directory:path.join(root,'savekit-exports','ouncecake-import',path.basename(directory),pending.request.nonce),
+      exportBackup:web?report.saveBackup.folder:undefined,saveTools,shouldStop:()=>stopping,onProgress,onState:async update=>{
+       report.saveImport={...update,request:pending.folder};await save();
+       await importFiles.atomic(path.join(pending.folder,'result.json'),update);
+      }});
+     await releaseSelectedHandles();
+    }catch(error){
+     await importFiles.atomic(path.join(pending.folder,'result.json'),{phase:'failed',message:error.message,
+      backupPath:error.backupPath||report.saveImport?.backupPath,cleanupBlocked:blocked(error),
+      writeMayHaveOccurred:report.saveImport?.writeMayHaveOccurred||['writing','verifying'].includes(report.saveImport?.phase)}).catch(()=>{});
+     if(!web||blocked(error))throw error;
+     await releaseSelectedHandles();
+     if(!stopping){
+      await server.resetUpload();
+      await showTransfer(error.message);
+      onProgress('OunceCake: '+error.message);
+     }
+     return;
+    }finally{await fs.rm(path.join(pending.folder,'request.json'),{force:true});}
+    onProgress('OunceCake: Save import verified. Original backup: '+result.backupPath);
+    if(stopping)return;
+    if(web){
+     try{
+      const manifest=await importFiles.json(path.join(result.verifiedPath,'manifest.json'));
+      await server.resetUpload({folder:result.verifiedPath,manifest});
+      Object.assign(report.saveBackup,{folder:result.verifiedPath,files:manifest.files,bytes:manifest.bytes});
+     }catch(error){
+      onProgress('OunceCake: Could not refresh the verified download: '+error.message);
+      throw Error('Import verified. Reopen the save session to refresh Export.',{cause:error});
+     }
+     await showTransfer('Import verified. Refresh Export/ in WinSCP for the updated save.');
+    }else{
+     selected=false;
+     await publish(protocol.STATES.catalog,'Save imported and verified. Automatic backup kept on the Mac.');
+     await resumeTitleFtp();
+    }
+   });
+ }
  async function select(index,{raw=false}={}){
+  // Reuse the launcher mailbox for buttons on the single-save transfer screens.
+  if(status===protocol.STATES.saveTransfer)return !raw&&index===0?submitWebImport():undefined;
+  if(selected&&status===protocol.STATES.preparing)return;
+  // Catalog rendering publishes before its final local bookkeeping settles.
+  // Serialize the next controller request with that operation as well.
+  if(started&&!stopping&&[protocol.STATES.reading,protocol.STATES.catalog].includes(status))await task;
   check(started&&!stopping&&!selected&&status===protocol.STATES.catalog&&
    Number.isInteger(index)&&index>=0&&index<games.length,
    'OunceCake game selection is unavailable');
   const chosen=games[index];
   if(chosen.saveLibrary)return openSaveLibrary();
-  if(chosen.saveBatch)return exportSave(chosen);
+  if(chosen.saveBatch)return raw?publish(protocol.STATES.catalog,'Choose one game and save archive for import.'):exportSave(chosen);
   if(chosen.saveGroup||chosen.savePage){
    selected=true;const previous=task;track((async()=>{await previous;if(stopping)return;
     if(chosen.saveGroup){const group=libraryGroups.find(g=>g.titleId===chosen.saveGroup);check(group,'Saved game folder is unavailable');saveParent='save-games';await showSaveArchives(group.archives,group.name,group.titleId);}
@@ -334,7 +484,7 @@ function create({rpc,menu,gpu,app,directory,root,runDirectory,sourceSession,
    })());
    return;
   }
-  if(chosen.saveArchive)return exportSave(chosen);
+  if(chosen.saveArchive)return raw?requestImport(chosen):exportSave(chosen);
   if(!raw&&!chosen.exportPart&&largeTitles.has(chosen.titleId)){
    selected=true;const previous=task;track((async()=>{await previous;if(stopping)return;await showParts(chosen);selected=false;})());return;
   }
@@ -445,8 +595,13 @@ function create({rpc,menu,gpu,app,directory,root,runDirectory,sourceSession,
   })());
  }
  async function back(){
+  if(started&&!stopping&&[protocol.STATES.reading,protocol.STATES.catalog].includes(status))await task;
+  // A B request from the waiting screen may arrive just after confirmation.
+  // Once writing is queued, ignore it and let commit/readback settle.
+  if(selected&&(status===protocol.STATES.preparing||status===protocol.STATES.importing&&!importRequest))return;
+  if(importRequest&&status===protocol.STATES.importing)return cancelImport();
   if(started&&!stopping&&!selected&&status===protocol.STATES.catalog&&view!=='root')return select(0);
-  check(started&&!stopping&&selected&&status===protocol.STATES.running,
+  check(started&&!stopping&&selected&&[protocol.STATES.running,protocol.STATES.saveTransfer].includes(status),
    'OunceCake HTTP/WebDAV is not running');
   await publish(protocol.STATES.closing,'Stopping the read-only HTTP/WebDAV worker...');
   const previous=task;
@@ -465,6 +620,8 @@ function create({rpc,menu,gpu,app,directory,root,runDirectory,sourceSession,
   closing=(async()=>{
    stopping=true;
    await task;
+   if(importRequest)await cancelImport();
+   if(server?.kind==='local-save')await stopServer();
    if(report.cleanupBlocked)throw failure||Object.assign(Error('OunceCake native cleanup is uncertain'),{cleanupBlocked:true});
    await releaseOwned();
    report.status='stopped';report.completed=new Date().toISOString();await save();
@@ -474,6 +631,6 @@ function create({rpc,menu,gpu,app,directory,root,runDirectory,sourceSession,
  // The existing launcher forwards bit 31 to selectRaw. Bit 30 selects saves,
  // allowing this app to update inside an already running MistBrew session.
  const selectRaw=index=>index>=0x40000000?selectSaves(index-0x40000000):select(index,{raw:true});
- return {start,select,selectRaw,selectSaves,back,close,get report(){return {...report};}};
+ return {start,select,selectRaw,selectSaves,back,close,pending:pendingImport,afterBatch:consumeImport,get report(){return {...report};}};
 }
 module.exports={create,ipv4};

@@ -17,14 +17,17 @@ labels = [
     ('DISCOVER', 'Reading games, saves, system titles & firmware...', 31),
     ('CHOOSE', 'Choose an export', 31),
     ('SYSTEM', 'System Files', 31),
-    ('PREPARING', 'Preparing export...', 31),
+    ('PREPARING', 'Preparing files...', 31),
+    ('IMPORT', 'Confirm save import in mac2jb on your Mac', 31),
     ('CLOSING', 'Closing server connection...', 31),
     ('READY', 'HTTP / WebDAV ready', 31),
     ('ERROR', 'OunceCake could not start', 31),
     ('RETURN', 'Hold B or Minus to return to MistBrew', 25),
     ('SELECT', 'A Open   X Raw NCA   L/R Page', 25),
     ('GAME_SELECT', 'A Open   X Raw NCA   Y Saves   L/R Page', 25),
-    ('SAVE_SELECT', 'A Open / export   B Back   L/R Page', 25),
+    ('SAVE_SELECT', 'A Export / open   X Import save   B Back   L/R Page', 25),
+    ('TRANSFER', 'Save Export & Import', 31),
+    ('TRANSFER_ACTION', 'A Import uploaded files   B Close session', 25),
     ('BACK', 'Press B to return to export list', 25),
 ]
 header = []
@@ -33,13 +36,13 @@ for name, label, size in labels:
     face = font(size)
     box = draw.textbbox((0, 0), label, font=face)
     width, height = box[2] - box[0], box[3] - box[1]
-    if width > 1016 or y + height > 628:
+    if width > 1016 or y + height > 756:
         raise SystemExit('label atlas overflow')
     draw.text((4 - box[0], y - box[1]), label, font=face, fill=255)
     header.append(f'const ivec4 TEXT_{name} = ivec4(4, {y}, {width}, {height});')
     y += height + 8
 
-cell_width, cell_height, glyph_y = 20, 32, 640
+cell_width, cell_height, glyph_y = 20, 32, 768
 ascii_font = font(24)
 for code in range(32, 128):
     x = (code - 32) % 16 * cell_width

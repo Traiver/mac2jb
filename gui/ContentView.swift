@@ -19,6 +19,7 @@ private struct ToolsContentHeightKey: PreferenceKey {
 struct ContentView: View {
     @ObservedObject var model: SessionModel
     @ObservedObject var updater: AppUpdater
+    var startsServices = true
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @StateObject private var account = StremioAccount()
     @StateObject private var civSwitch = CivSwitchModel()
@@ -115,20 +116,17 @@ struct ContentView: View {
     }
 
     var body: some View {
-        ZStack {
-            Mac2jbBackdrop()
+        Mac2jbWorkspace {
             GeometryReader { viewport in
                 ScrollViewReader { proxy in
                     ScrollView {
-                        VStack(spacing: 16) {
+                        VStack(spacing: 18) {
+                            workspaceHeader
                             if updater.state != .idle { updateStatus }
                             if canConfigure { home } else { activeSession }
                             toolsBubble
-                            Text("mac2jb · v\(AppBuildIdentity.version)")
-                                .font(.system(size: 10)).foregroundStyle(Mac2jbTheme.muted)
-                                .frame(maxWidth: .infinity, alignment: .trailing)
                         }
-                        .frame(maxWidth: 820).padding(.horizontal, 30).padding(.vertical, 24)
+                        .frame(maxWidth: 820).padding(.horizontal, 34).padding(.top, 38).padding(.bottom, 24)
                         .frame(maxWidth: .infinity, minHeight: viewport.size.height)
                     }
                     .onChange(of: model.phase) { previous, current in
@@ -159,9 +157,11 @@ struct ContentView: View {
         .frame(minWidth: 760, minHeight: 560)
         .preferredColorScheme(.dark).tint(accent)
         .onAppear {
-            model.accountProgressHandler = { [weak account] update in account?.handleProgress(update) }
-            model.prepare(); updater.start()
-            dnsSwitch.refreshAddresses()
+            if startsServices {
+                model.accountProgressHandler = { [weak account] update in account?.handleProgress(update) }
+                model.prepare(); updater.start()
+                dnsSwitch.refreshAddresses()
+            }
             NSApp.activate(ignoringOtherApps: true)
         }
         .onDisappear {
@@ -173,6 +173,7 @@ struct ContentView: View {
             webKitResearch.stopForTermination()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            guard startsServices else { return }
             model.refreshNetworkAddressesIfIdle()
             dnsSwitch.refreshAddresses()
         }
@@ -205,6 +206,9 @@ struct ContentView: View {
         }
         .onChange(of: showCivSwitchSetup) { _, shown in if shown { civSwitchReady = false } }
         .onChange(of: showDeveloperOptions) { _, shown in if shown { developerReady = false } }
+        .sheet(item: $model.ounceCakeImport) { context in
+            OunceCakeImportView(context: context)
+        }
         .sheet(isPresented: $showNS2JBSetup) {
             if showBootstrapSetup { firstTimeSetup }
             else { ns2jbSetup }
@@ -237,8 +241,26 @@ struct ContentView: View {
         } message: { Text("The app will close, install the verified release, and reopen. Your logs and driver are kept. The previous app is saved as a backup.") }
     }
 
+    private var workspaceHeader: some View {
+        HStack(spacing: 13) {
+            Image(nsImage: NSApp.applicationIconImage)
+                .resizable().interpolation(.high).frame(width: 48, height: 48)
+                .accessibilityHidden(true)
+            Text("mac2jb").font(.system(size: 25, weight: .semibold)).tracking(-0.8)
+                .foregroundStyle(ink)
+            Spacer()
+            Text(AppBuildIdentity.versionLabel)
+                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                .foregroundStyle(Mac2jbTheme.muted)
+                .padding(.horizontal, 11).padding(.vertical, 6)
+                .background(.white.opacity(0.035), in: Capsule())
+                .overlay(Capsule().strokeBorder(.white.opacity(0.07), lineWidth: 0.75))
+        }
+        .padding(.bottom, 8)
+    }
+
     private var home: some View {
-        VStack(alignment: .leading, spacing: 20) {
+        VStack(alignment: .leading, spacing: 18) {
             if let notice = model.networkNotice { note(notice, icon: "network", color: .orange) }
             if model.phase == .failed || model.phase == .cancelled {
                 note(model.detail, icon: "exclamationmark.circle", color: .orange)
@@ -250,35 +272,55 @@ struct ContentView: View {
                     Button("Open original save backup") { model.revealSeedsowBackup() }
                 }
             }
-            panel {
-                VStack(alignment: .leading, spacing: 24) {
-                    essentials
-                    Divider().overlay(.white.opacity(0.04))
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text("ns2jb").font(.system(size: 15, weight: .semibold)).foregroundStyle(ink)
-                        Text(model.selectedHost.supportsDemo
-                             ? "SmileBASIC 4 full game or demo supported."
-                             : "SmileBASIC 4 full game supported.")
-                            .font(.system(size: 11)).foregroundStyle(Mac2jbTheme.muted)
-                    }
-                    Button { showNS2JBSetup = true } label: {
-                        HStack(spacing: 14) { Text("Jailbreak with ns2jb"); Image(systemName: "arrow.right") }
-                    }.buttonStyle(PrimaryActionStyle(large: true))
-                        .disabled(configurationLocked || updater.blocksNewSession)
-                    Divider().overlay(.white.opacity(0.04))
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("CivSwitch").font(.system(size: 15, weight: .semibold))
-                        Text("Use a Civilization VII cartridge and its own setup. For Artemis launcher saves, use ns2jb above.")
-                            .font(.system(size: 11)).foregroundStyle(Mac2jbTheme.muted)
-                        Button { showCivSwitchSetup = true } label: {
-                            HStack(spacing: 14) { Text("Jailbreak with CivSwitch"); Image(systemName: "arrow.right") }
-                        }
-                        .buttonStyle(PrimaryActionStyle(large: true))
-                        .disabled(configurationLocked || updater.blocksNewSession)
-                    }
-                }
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Start a session").font(.system(size: 24, weight: .semibold)).tracking(-0.6)
+                    .foregroundStyle(ink)
+                Text("Choose the method that matches your setup.")
+                    .font(.system(size: 12)).foregroundStyle(Mac2jbTheme.muted)
+            }
+            .padding(.top, 8).padding(.bottom, 4)
+            panel { essentials }
+            HStack(alignment: .top, spacing: 16) {
+                entryPointCard(title: "ns2jb", subtitle: "SmileBASIC", symbol: "terminal",
+                               detail: model.selectedHost.supportsDemo
+                               ? "SmileBASIC 4 full game or demo. Includes MistBrew and save tools."
+                               : "SmileBASIC 4 full game. Includes the tools supported by your selected host.",
+                               secondary: false) { showNS2JBSetup = true }
+                entryPointCard(title: "CivSwitch", subtitle: "Civilization VII", symbol: "gamecontroller",
+                               detail: "A separate setup using a Civilization VII cartridge. For Artemis launcher saves, use ns2jb.",
+                               secondary: true) { showCivSwitchSetup = true }
             }
         }
+    }
+
+    private func entryPointCard(title: String, subtitle: String, symbol: String, detail: String,
+                                secondary: Bool, action: @escaping () -> Void) -> some View {
+        VStack(alignment: .leading, spacing: 19) {
+            HStack(alignment: .center) {
+                Image(systemName: symbol).font(.system(size: 19, weight: .medium))
+                    .foregroundStyle(accent).frame(width: 42, height: 42)
+                    .background(accent.opacity(0.065), in: RoundedRectangle(cornerRadius: 13))
+                    .overlay(RoundedRectangle(cornerRadius: 13).strokeBorder(accent.opacity(0.10), lineWidth: 0.75))
+                Spacer()
+                Text(subtitle).font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(Mac2jbTheme.muted)
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                Text(title).font(.system(size: 21, weight: .semibold)).tracking(-0.4)
+                    .foregroundStyle(ink)
+                Text(detail).font(.system(size: 12)).lineSpacing(3)
+                    .foregroundStyle(Mac2jbTheme.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(minHeight: 54, alignment: .top)
+            }
+            Button(action: action) {
+                HStack { Text("Jailbreak with \(title)"); Spacer(minLength: 6); Image(systemName: "arrow.right") }
+            }
+            .buttonStyle(PrimaryActionStyle(large: true, secondary: secondary))
+            .disabled(configurationLocked || updater.blocksNewSession)
+        }
+        .modifier(GlassPanel())
+        .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 
     private var demoEditionCheckbox: some View {
@@ -1208,6 +1250,7 @@ struct ContentView: View {
                  ? "Restart your Switch, then use Stop session. Cleanup could not be confirmed."
                  : model.phase == .dumpingFirmware
                     ? "Keep SmileBASIC open until the dump finishes. Stopping early may leave a partial dump."
+                    : model.webSaveImportID != nil ? "Confirm or cancel the save import in OunceCake on the Switch."
                     : model.isAttachedRPCSession ? "When you’re done, disconnect here. The original host keeps its RPC session open." : "When you’re done, finish the session before closing SmileBASIC.")
                 .font(.system(size: 12)).foregroundStyle(Mac2jbTheme.muted)
             HStack {
@@ -1227,7 +1270,7 @@ struct ContentView: View {
                         .disabled(model.savekitBusy)
                 } else {
                     Button(model.isAttachedRPCSession ? "Disconnect" : "Finish session") { model.finishPostRun() }
-                        .buttonStyle(PrimaryActionStyle()).disabled(!model.postRun.canFinish || model.savekitBusy)
+                        .buttonStyle(PrimaryActionStyle()).disabled(!model.postRun.canFinish || model.savekitBusy || model.webSaveImportID != nil)
                 }
             }
         }
@@ -1766,7 +1809,9 @@ struct ContentView: View {
                 showDeveloperOptions.toggle()
             } label: {
                 HStack {
-                    Text("Console & Developer Options").font(.system(size: 12, weight: .semibold)).foregroundStyle(ink)
+                    Image(systemName: "slider.horizontal.3").font(.system(size: 12)).foregroundStyle(accent)
+                        .frame(width: 20)
+                    Text("Console & Developer Options").font(.system(size: 12, weight: .medium)).foregroundStyle(ink)
                     Spacer()
                     Image(systemName: "chevron.down").font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(accent).rotationEffect(.degrees(showDeveloperOptions ? 180 : 0))
@@ -1800,10 +1845,9 @@ struct ContentView: View {
                 }
             }
         }
-        .padding(20)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 28, style: .continuous).stroke(.white.opacity(0.10), lineWidth: 1))
-        .shadow(color: .black.opacity(0.16), radius: 20, y: 8)
+        .padding(18)
+        .background(.white.opacity(0.025), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(.white.opacity(0.07), lineWidth: 0.75))
     }
 
     private var selectedConsoleLog: String {
@@ -1821,13 +1865,8 @@ struct ContentView: View {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 12) {
                     Text("Console").font(.system(size: 12, weight: .semibold)).foregroundStyle(ink)
-                    Picker("Console output", selection: $activityTab) {
-                        Text("All").tag(0)
-                        Text("Host").tag(1)
-                        Text("USB & typing").tag(2)
-                        Text("Pipeline").tag(3)
-                        Text("Acquisition").tag(4)
-                    }.pickerStyle(.segmented).labelsHidden().controlSize(.small).frame(width: 420)
+                        .fixedSize().layoutPriority(1)
+                    ConsoleOutputTabs(selection: $activityTab).frame(width: 420, height: 28)
                     Spacer(minLength: 0)
                     Button {
                         followConsole.toggle()
