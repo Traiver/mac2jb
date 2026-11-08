@@ -1,9 +1,12 @@
 'use strict';
-// Serve a completed local backup. Network requests never touch the console/RPC.
+// Serve a verified backup and an optional local inbox on one DAV endpoint.
+// Network requests never touch the console/RPC.
 const http=require('node:http'),fs=require('node:fs/promises'),path=require('node:path');
 const os=require('node:os'),net=require('node:net');
-const DEFAULT_PORT=8081;
-const {safeName,hashFile}=require('./saves.cjs');
+const uploadTools=require('./save-upload.cjs');
+const DEFAULT_PORT=8081,READ_METHODS='OPTIONS, GET, HEAD, PROPFIND';
+const {safeName,hashFile,identity}=require('./saves.cjs');
+const {supported}=require('./save-import-files.cjs');
 const check=(v,m)=>{if(!v)throw Object.assign(Error(m),{code:'SAVE_EXPORT_FAILED'});};
 const escape=value=>String(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&apos;'}[c]));
 const encode=value=>value.split('/').map(encodeURIComponent).join('/');
@@ -16,15 +19,17 @@ function hostAddress(switchAddress,interfaces=os.networkInterfaces()){
  check(candidates.length>0,'No Mac IPv4 address on the Switch network');
  return candidates[0].address;
 }
-async function start({folder,manifest,name,address,port=DEFAULT_PORT}){
- check(net.isIPv4(address)&&!address.startsWith('0.')&&safeName(name),'Invalid save download endpoint');
+async function downloadNodes({folder,manifest,name,combined}){
  const collection=manifest?.format==='mac2jb.save-collection';
  check(['mac2jb.save-backup','mac2jb.save-collection'].includes(manifest?.format)&&
   (manifest.partial===false||collection&&manifest.partial===true&&manifest.failed?.length>0&&manifest.archives?.length>0)&&
   Array.isArray(manifest.entries)&&Array.isArray(manifest.directories),'Incomplete save backup');
- const root=await fs.realpath(folder),base='/';
- const prefix=name+(collection?'':'/files');
- const nodes=new Map([['',{directory:true}], [name,{directory:true}],...collection?[]:[[prefix,{directory:true}]]]);
+ const root=await fs.realpath(folder);
+ const downloadName=combined?name+'/Export':name;
+ const prefix=downloadName+(collection?'':'/files');
+ const nodes=new Map([['',{directory:true}],[name,{directory:true}]]);
+ if(combined)nodes.set(downloadName,{directory:true});
+ if(!collection)nodes.set(prefix,{directory:true});
  const add=(key,node)=>{check(!nodes.has(key),'Repeated save download path');nodes.set(key,node);};
  const validate=p=>{check(typeof p==='string'&&p.split('/').every(safeName),'Invalid backup path');};
  for(const relative of manifest.directories){validate(relative);add(prefix+'/'+relative,{directory:true});}
@@ -37,40 +42,61 @@ async function start({folder,manifest,name,address,port=DEFAULT_PORT}){
  for(const entry of manifest.entries){validate(entry.path);await file('files/'+entry.path,prefix+'/'+entry.path,entry);}
  const diskManifest=JSON.parse(await fs.readFile(path.join(root,'manifest.json'),'utf8'));
  check(JSON.stringify(diskManifest)===JSON.stringify(manifest),'Save backup manifest changed before download');
- await file('manifest.json',name+'/manifest.json');
+ await file('manifest.json',downloadName+'/manifest.json');
+ return nodes;
+}
+async function start({folder,manifest,name,address,port=DEFAULT_PORT,uploadDirectory,maxUploadBytes}){
+ check(net.isIPv4(address)&&!address.startsWith('0.')&&safeName(name),'Invalid save download endpoint');
+ const combined=uploadDirectory!==undefined;
+ if(combined){
+  check(manifest?.format==='mac2jb.save-backup','Select one save archive for import');
+  supported(manifest.selection);
+ }
+ let currentManifest=manifest;
+ let nodes=await downloadNodes({folder,manifest,name,combined});
+ async function createInbox(nextManifest){
+  return uploadTools.create({folder:uploadDirectory,manifest:nextManifest,prefix:name+'/Import',maxBytes:maxUploadBytes});
+ }
+ let upload=combined?await createInbox(manifest):null;
  const sockets=new Set(),active=new Set();let closing=false;
  const server=http.createServer(async(req,res)=>{
-  let finished;const operation=new Promise(resolve=>{finished=resolve;});active.add(operation);req.resume();
+  let finished;const operation=new Promise(resolve=>{finished=resolve;});active.add(operation);
   try{
    if(closing){res.writeHead(503);res.end();return;}
    res.setHeader('Cache-Control','no-store');res.setHeader('X-Content-Type-Options','nosniff');
    check(req.url?.length<16384,'Invalid request');
    const raw=req.url.split('?')[0];
-   if(!raw.startsWith(base)){res.writeHead(404);res.end();return;}
-   let key=decodeURIComponent(raw.slice(base.length));
+   if(!raw.startsWith('/')){res.writeHead(404);res.end();return;}
+   let key=decodeURIComponent(raw.slice(1));
    if(key.endsWith('/'))key=key.slice(0,-1);
    if(key&&!key.split('/').every(safeName)){res.writeHead(400);res.end();return;}
-   const node=nodes.get(key);if(!node){res.writeHead(404);res.end();return;}
-   if(req.method==='OPTIONS'){res.writeHead(200,{Allow:'OPTIONS, GET, HEAD, PROPFIND',DAV:'1'});res.end();return;}
+   const inbox=upload?.belongs(key)?upload:null;
+   // Include the inbox in title listings and recursive listings from the root.
+   // An in-flight download retains its original snapshot.
+   const visible=inbox?.nodes??(upload&&(!key||key===name)?new Map([...nodes,...upload.nodes]):nodes);
+   const allow=inbox?uploadTools.METHODS:READ_METHODS;
+   if(inbox&&['PUT','MKCOL'].includes(req.method)){await inbox.mutate(req,res,key);return;}
+   const node=visible.get(key);if(!node){res.writeHead(404);res.end();return;}
+   if(req.method==='OPTIONS'){res.writeHead(200,{Allow:allow,DAV:'1'});res.end();return;}
    if(req.method==='PROPFIND'){
     const depth=req.headers.depth??'infinity';
     if(!['0','1','infinity'].includes(depth)){res.writeHead(400);res.end();return;}
     const prefix=key?key+'/':'';
-    const list=[...nodes].filter(([k])=>k===key||node.directory&&depth!=='0'&&k.startsWith(prefix)&&
+    const list=[...visible].filter(([k])=>k===key||node.directory&&depth!=='0'&&k.startsWith(prefix)&&
      (depth==='infinity'||!k.slice(prefix.length).includes('/')));
     const xml='<?xml version="1.0" encoding="utf-8"?><d:multistatus xmlns:d="DAV:">'+list.map(([k,n])=>
-     '<d:response><d:href>'+escape(base+encode(k)+(n.directory&&k?'/':''))+'</d:href><d:propstat><d:prop>'+
+     '<d:response><d:href>'+escape('/'+encode(k)+(n.directory&&k?'/':''))+'</d:href><d:propstat><d:prop>'+
      '<d:displayname>'+escape(k.split('/').pop()||'Save backup')+'</d:displayname><d:resourcetype>'+
      (n.directory?'<d:collection/>':'')+'</d:resourcetype><d:getcontentlength>'+(n.size||0)+
      '</d:getcontentlength></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>').join('')+'</d:multistatus>';
     res.writeHead(207,{'Content-Type':'application/xml; charset=utf-8'});res.end(xml);return;
    }
-   if(!['GET','HEAD'].includes(req.method)){res.writeHead(405,{Allow:'OPTIONS, GET, HEAD, PROPFIND'});res.end();return;}
+   if(!['GET','HEAD'].includes(req.method)){res.writeHead(405,{Allow:allow});res.end();return;}
    if(node.directory){
     // Always use absolute links, including when a client omits the trailing slash.
-    const prefix=key?key+'/':'',rows=[...nodes].filter(([k])=>k!==key&&k.startsWith(prefix)&&!k.slice(prefix.length).includes('/'));
+    const prefix=key?key+'/':'',rows=[...visible].filter(([k])=>k!==key&&k.startsWith(prefix)&&!k.slice(prefix.length).includes('/'));
     const html='<!doctype html><meta charset="utf-8"><title>Save backup</title><h1>'+escape(key||'Save backup')+'</h1><ul>'+rows.map(([k,n])=>
-     '<li><a href="'+escape(base+encode(k)+(n.directory?'/':''))+'">'+escape(k.slice(prefix.length))+(n.directory?'/':'')+'</a></li>').join('')+'</ul>';
+     '<li><a href="'+escape('/'+encode(k)+(n.directory?'/':''))+'">'+escape(k.slice(prefix.length))+(n.directory?'/':'')+'</a></li>').join('')+'</ul>';
     res.writeHead(200,{'Content-Type':'text/html; charset=utf-8','Content-Length':Buffer.byteLength(html)});res.end(req.method==='HEAD'?undefined:html);return;
    }
    let start=0,end=node.size-1,partial=false;
@@ -96,21 +122,33 @@ async function start({folder,manifest,name,address,port=DEFAULT_PORT}){
     await new Promise((resolve,reject)=>{res.once('close',()=>{stream.destroy();resolve();});stream.once('error',reject);stream.pipe(res);});
    }finally{await handle.close();}
   }catch(error){if(!res.headersSent)res.writeHead(error instanceof URIError?400:500);res.end();}
-  finally{active.delete(operation);finished();}
+  finally{req.resume();active.delete(operation);finished();}
  });
  server.on('connection',socket=>{sockets.add(socket);socket.on('close',()=>sockets.delete(socket));});
- server.requestTimeout=30000;server.headersTimeout=15000;
+ server.requestTimeout=300000;server.headersTimeout=15000;
  try{
   await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(port,address,()=>{server.off('error',reject);resolve();});});
  }catch(error){
+  await upload?.remove();
   if(error.code==='EADDRINUSE')throw Object.assign(Error('Save download port '+port+' is already in use. Close the other server and retry.'),{code:'SAVE_PORT_IN_USE',cause:error});
   throw error;
  }
- return {kind:'local-save',url:'http://'+address+':'+server.address().port+base,
+ return {kind:'local-save',url:'http://'+address+':'+server.address().port+'/',combined,
+  freezeUpload(){check(upload,'No import upload is open');return upload.freeze();},
+  async resetUpload(backup){
+   check(upload&&!closing,'The save transfer session is closed');
+   const nextManifest=backup?.manifest??currentManifest;
+   check(identity(nextManifest.selection)===identity(manifest.selection),'Verified save archive changed');
+   const nextNodes=backup?await downloadNodes({...backup,name,combined}):nodes;
+   const nextInbox=await createInbox(nextManifest);
+   const previous=upload;
+   nodes=nextNodes;upload=nextInbox;currentManifest=nextManifest;
+   await previous.remove();
+  },
   async close(){if(!closing){closing=(async()=>{
    const stopped=new Promise((resolve,reject)=>server.close(error=>error?reject(error):resolve()));
    const connections=[...sockets].map(socket=>new Promise(resolve=>{socket.once('close',resolve);socket.destroy();}));
-   await Promise.all([stopped,...connections]);await Promise.all([...active]);
+   await Promise.all([stopped,...connections]);await Promise.all([...active]);await upload?.remove();upload=null;
   })();}await closing;return {localStopped:!server.listening,connectionsClosed:sockets.size===0&&active.size===0};}};
 }
 module.exports={start,hostAddress,DEFAULT_PORT};

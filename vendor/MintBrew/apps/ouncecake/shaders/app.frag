@@ -17,8 +17,8 @@ float titlePixel(vec2 p,vec2 origin,uint index){
  uint packed=(payload.words[address>>2u]>>((address&3u)*8u))&255u;
  return float((packed>>uint(6-2*(q.x&3)))&3u)/3.0;
 }
-uint messageByte(uint index){
- uint address=128u+index;
+uint messageByte(uint index,uint offset){
+ uint address=offset+index;
  return (payload.words[address>>2u]>>((address&3u)*8u))&255u;
 }
 float asciiGlyph(vec2 p,vec2 origin,uint code){
@@ -31,12 +31,13 @@ float asciiGlyph(vec2 p,vec2 origin,uint code){
  uint value=c.atlas[address>>2u];
  return float((value>>((address&3u)*8u))&255u)/255.0;
 }
-float messagePixel(vec2 p,vec2 origin){
- uint length=min(payload.words[4],76u);
+float linePixel(vec2 p,vec2 origin,uint offset,uint length){
+ length=min(length,76u);
  if(p.y<origin.y||p.y>=origin.y+float(ASCII_CELL_HEIGHT)||p.x<origin.x||p.x>=origin.x+float(length*ASCII_CELL_WIDTH))return 0.0;
  uint index=uint((p.x-origin.x)/float(ASCII_CELL_WIDTH));
- return asciiGlyph(p,origin+vec2(float(index*ASCII_CELL_WIDTH),0),messageByte(index));
+ return asciiGlyph(p,origin+vec2(float(index*ASCII_CELL_WIDTH),0),messageByte(index,offset));
 }
+float messagePixel(vec2 p,vec2 origin){return linePixel(p,origin,128u,payload.words[4]);}
 void main(){
  vec2 p=gl_FragCoord.xy;
  const vec3 mist=vec3(.62,.80,.96),ink=vec3(.91,.96,1.0),muted=vec3(.64,.73,.84);
@@ -77,10 +78,12 @@ void main(){
   col=mix(col,muted,text(p,vec2(200,961),payload.words[8]==2u?TEXT_SAVE_SELECT:payload.words[8]==1u?TEXT_GAME_SELECT:TEXT_SELECT));
  }else{
   if(payload.words[7]!=0u)col=mix(col,ink,titlePixel(p,vec2(195,270),1001u));
-  ivec4 label=status==2u?TEXT_PREPARING:status==3u?TEXT_READY:status==4u?TEXT_ERROR:status==5u?TEXT_CLOSING:TEXT_DISCOVER;
+  ivec4 label=status==7u?TEXT_TRANSFER:status==6u?TEXT_IMPORT:status==2u?TEXT_PREPARING:status==3u?TEXT_READY:status==4u?TEXT_ERROR:status==5u?TEXT_CLOSING:TEXT_DISCOVER;
   col=mix(col,ink,text(p,vec2(195,315),label));
  }
  if(status!=1u)col=mix(col,status==4u?vec3(.99,.64,.57):mist,messagePixel(p,vec2(195,380)));
+ if(status!=1u)col=mix(col,muted,linePixel(p,vec2(195,435),256u,payload.words[9]));
+ if(status==7u)col=mix(col,muted,text(p,vec2(195,510),TEXT_TRANSFER_ACTION));
  if(status==3u)col=mix(col,muted,text(p,vec2(195,465),TEXT_BACK));
  col=mix(col,muted,text(p,vec2(200,1003),TEXT_RETURN));
  outColor=vec4(col*(1.0-c.transition.x),1.0);

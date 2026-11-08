@@ -64,15 +64,16 @@ function inspect(root, prepared) {
   const plist = ['gui/Info.plist', 'source/gui/Info.plist']
     .map(name => path.join(repository, name)).find(file => fs.existsSync(file));
   check(plist, 'Missing mac2jb app version for MintBrew.');
-  const version = fs.readFileSync(plist, 'utf8')
-    .match(/<key>CFBundleShortVersionString<\/key>\s*<string>([^<]+)<\/string>/)?.[1];
-  check(version, 'Invalid mac2jb app version for MintBrew.');
+  const info = fs.readFileSync(plist, 'utf8');
+  const version = info.match(/<key>CFBundleShortVersionString<\/key>\s*<string>([^<]+)<\/string>/)?.[1];
+  const build = info.match(/<key>CFBundleVersion<\/key>\s*<string>([1-9][0-9]*)<\/string>/)?.[1];
+  check(version && build, 'Invalid mac2jb app version or build for MintBrew.');
   const metadata = JSON.parse(fs.readFileSync(path.join(shaderRoot, 'launcher-text.json'), 'utf8'));
   const sha = file => crypto.createHash('sha256').update(fs.readFileSync(path.join(shaderRoot, file))).digest('hex');
-  check(metadata.mac2jbVersion === version &&
+  check(metadata.mac2jbVersion === version && metadata.mac2jbBuild === build &&
     metadata.atlasSha256 === sha('launcher-text.bin') &&
     metadata.layoutSha256 === sha('launcher-text.glsl'),
-  'MintBrew type atlas does not match the mac2jb app version.');
+  'MintBrew type atlas does not match the mac2jb app version and build.');
   const text = fs.readFileSync(path.join(root, 'homebrew-launcher/launcher-text.py'), 'utf8');
   check(text.includes("('TITLE', 'MistBrew'") && text.includes('MAC2JB_HBLAUNCHER_FONT'),
     'MintBrew label or portable font setting is missing.');

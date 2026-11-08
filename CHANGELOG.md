@@ -1,5 +1,12 @@
 # Changelog
 
+## mac2jb v0.7.6 — Build 544
+
+- Redesign the Mac app with subtle pointer-responsive mist and fix overlapping console tabs.
+- Import edited Account and Device saves from WinSCP in the same OunceCake session. The game folder shows its TitleID, and one confirmation applies the uploads while preserving the rest of the save.
+- Reuse the existing export as the backup and verify the result after writing.
+- Show build numbers alongside the version and automatically keep the three most recent session folders, protecting active sessions.
+
 ## mac2jb v0.7.5 — 2026-11-06
 
 - Add read-only HTTP/WebDAV save exports, including uninstalled games, bulk backups, profile names and labeled BCAT archives.

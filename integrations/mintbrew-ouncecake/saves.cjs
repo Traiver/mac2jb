@@ -74,7 +74,7 @@ async function hashFile(file){
  finally{await handle.close();}
  return hash.digest('hex');
 }
-async function snapshot({attachment,archive,directory,shouldStop=()=>false,onProgress=()=>{},verifiedInventory}){
+async function snapshot({attachment,archive,directory,manifestOnly=false,shouldStop=()=>false,onProgress=()=>{},verifiedInventory}){
  validateArchive(archive);check(isGameSave(archive),'Only Account, Device or BCAT game archives can be exported');throwIfCancelled(shouldStop);
  const {s,root,domain,filesystem}=attachment;
  // Recheck the exact index entry before opening; never guess another user/archive.
@@ -87,9 +87,11 @@ async function snapshot({attachment,archive,directory,shouldStop=()=>false,onPro
  let folder,complete=false;
  try{
   return await withCleanup(async()=>{
-   await fs.mkdir(directory,{recursive:true,mode:0o700});
-   folder=await fs.mkdtemp(path.join(directory,archive.titleId+'-'));
-   await fs.mkdir(path.join(folder,'files'),{mode:0o700});
+   if(!manifestOnly){
+    await fs.mkdir(directory,{recursive:true,mode:0o700});
+    folder=await fs.mkdtemp(path.join(directory,archive.titleId+'-'));
+    await fs.mkdir(path.join(folder,'files'),{mode:0o700});
+   }
    const entries=[],directories=[],seen=new Set();let total=0,items=0;
    async function walk(remote,depth=0){
     throwIfCancelled(shouldStop);check(depth<=32,'Save directory tree is too deep');
@@ -98,8 +100,8 @@ async function snapshot({attachment,archive,directory,shouldStop=()=>false,onPro
      throwIfCancelled(shouldStop);check(safeName(row.name),'Unsafe name in save archive');
      const full=(remote==='/'?'':remote)+'/'+row.name,relative=full.slice(1);
      check(!seen.has(full)&&++items<=65536,'Duplicate or excessive save entries');seen.add(full);
-     const target=path.join(folder,'files',relative);
-     if(row.type===0){directories.push(relative);await fs.mkdir(target,{mode:0o700});await walk(full,depth+1);continue;}
+     const target=folder?path.join(folder,'files',relative):null;
+     if(row.type===0){directories.push(relative);if(target)await fs.mkdir(target,{mode:0o700});await walk(full,depth+1);continue;}
      check(row.type===1,'Unknown entry type in save archive');
      const opened=await filesystem.openFile(s,handle,full);
      success(opened,'Open save file '+full);check(Number.isInteger(opened.handle)&&opened.handle>0,'Missing save file handle');
@@ -107,22 +109,24 @@ async function snapshot({attachment,archive,directory,shouldStop=()=>false,onPro
       const size=Number(await filesystem.fileSize(s,opened.handle));
       check(Number.isSafeInteger(size)&&size>=0&&size===Number(row.size),'Save file size changed: '+full);
       check(Number.isSafeInteger(total+size),'Save export is too large');
-      const local=await fs.open(target,'wx',0o600),hash=crypto.createHash('sha256');
+      const local=target?await fs.open(target,'wx',0o600):null,hash=crypto.createHash('sha256');
       try{
        for(let offset=0;offset<size;){
         throwIfCancelled(shouldStop);
         const amount=Math.min(0x40000,size-offset),bytes=await filesystem.readFile(s,opened.handle,offset,amount);
         check(Buffer.isBuffer(bytes)&&bytes.length===amount,'Short save file read: '+full);
-        let written=0;while(written<bytes.length){const r=await local.write(bytes,written,bytes.length-written);check(r.bytesWritten>0,'Could not write save backup');written+=r.bytesWritten;}
+        if(local){
+         let written=0;while(written<bytes.length){const r=await local.write(bytes,written,bytes.length-written);check(r.bytesWritten>0,'Could not write save backup');written+=r.bytesWritten;}
+        }
         hash.update(bytes);offset+=bytes.length;
        }
        check(Number(await filesystem.fileSize(s,opened.handle))===size,'Save file size changed during export');
-       await local.sync();
-      }finally{await local.close();}
+       await local?.sync();
+      }finally{await local?.close();}
       const sha256=hash.digest('hex');
-      check(await hashFile(target)===sha256,'Local save backup checksum mismatch: '+full);
+      if(target)check(await hashFile(target)===sha256,'Local save backup checksum mismatch: '+full);
       entries.push({path:relative,size,sha256});total+=size;
-      onProgress('OunceCake: Save backup: '+entries.length+' files, '+total+' bytes');
+      onProgress('OunceCake: '+(manifestOnly?'Checking live save: ':'Save backup: ')+entries.length+' files, '+total+' bytes');
      },()=>s.close(opened.handle));
     }
    }
@@ -130,7 +134,7 @@ async function snapshot({attachment,archive,directory,shouldStop=()=>false,onPro
    const manifest={format:'mac2jb.save-backup',version:1,created:new Date().toISOString(),
     titleId:archive.titleId,selection:archive,readOnly:true,partial:false,files:entries.length,bytes:total,
     directories,entries};
-   await fs.writeFile(path.join(folder,'manifest.json'),JSON.stringify(manifest,null,2)+'\n',{flag:'wx',mode:0o600});
+   if(folder)await fs.writeFile(path.join(folder,'manifest.json'),JSON.stringify(manifest,null,2)+'\n',{flag:'wx',mode:0o600});
    complete=true;return {folder,manifest};
   },()=>s.close(handle));
  }catch(error){complete=false;throw error;}

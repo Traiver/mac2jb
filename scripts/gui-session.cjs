@@ -642,6 +642,15 @@ async function main({root, address, emit, lines, verifiedResult, input = process
           catch {fail('IZlauncher returned an invalid local panel address.'); stopHomebrew();}
           return;
         }
+        if (event.type === 'ouncecake-import-request') {
+          if (application === 'mintbrew' && !homebrewSettled && !finishing &&
+              /^[a-f0-9]{48}$/.test(event.nonce) && typeof event.requestFolder === 'string' &&
+              typeof event.path === 'string' && event.path.startsWith(path.join(root, 'runs', 'mintbrew-')) &&
+              path.resolve(event.path) === event.path &&
+              event.requestFolder === path.join(event.path, 'save-imports', 'request-' + event.nonce))
+            safeEmit('ouncecake-import-request', {requestFolder:event.requestFolder, nonce:event.nonce});
+          return;
+        }
         if (event.type === 'account-progress') {
           if (application === 'mintbrew' && event.watchProgress && typeof event.watchProgress === 'object' && !Array.isArray(event.watchProgress))
             safeEmit('account-progress', {watchProgress: event.watchProgress});

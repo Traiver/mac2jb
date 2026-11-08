@@ -56,7 +56,7 @@ configuration, keep that setup.
 
 ### 2. install and load the usb driver
 
-1. extract the supplied v0.7.5 zip and open `mac2jb.app`.
+1. extract the supplied v0.7.6 zip and open `mac2jb.app`.
 2. if macOS blocks the app, open system settings → privacy & security and choose open anyway if offered, then reopen the app.
 3. click install & load driver… and approve the administrator prompt.
 4. if prompted, open system settings → privacy & security and allow the driver.
@@ -399,15 +399,14 @@ Choose the profile name and archive (Account, shared Device or BCAT), then
 press **A**. OunceCake opens the selected archive read-only, copies every file to
 a private Mac backup and verifies its SHA-256 checksums. The download is enabled
 only after copying and native-handle cleanup have completed. No save files are
-written or committed on the console; restore/import is not part of this feature.
+written or committed by the export path. A separate, confirmed import is described below.
 Profile names are read from the console and matched to the complete raw user ID.
 Identical names include their IDs to distinguish them; unavailable names fall
 back to the user ID. Shared archives remain labelled `Shared`.
 
-Save downloads use the **Mac address displayed on the Switch**, fixed port **8081**
-and the root path **/**, for example `http://192.168.1.10:8081/`. In WinSCP choose
-WebDAV without TLS, set port 8081 and remote directory `/`, then download the
-complete title folder, including `files/` and
+Save transfers use WebDAV without TLS at the **Mac address displayed on the
+Switch**, port **8081**. Open remote directory `/`. For read-only exports,
+download the complete title folder. Each save export includes `files/` and
 `manifest.json`. The manifest records the title, raw account UID, archive identity,
 file sizes and checksums; save files named `manifest.json` remain inside `files/`.
 Press **B** to stop sharing and return to the archive list. A completed local copy
@@ -416,6 +415,49 @@ session is deleted. Failed or cancelled copies are removed and never shared.
 If port 8081 is occupied, OunceCake reports the conflict instead of silently
 changing ports. The Mac's IP address is assigned by the network; reserve its
 address in your router if you want it to remain fixed across network changes.
+
+An individual primary Account or Device save opens a **Save Export & Import**
+session. In WinSCP, connect with the displayed IP address and port, then open the
+game folder labelled `Game Title [TitleID]`. It contains **Export/** and
+**Import/**. Devices on the local network can access the share while it is open.
+The console confirmation applies the staged files.
+
+1. Download from **Export/files/**, then edit the save on Windows.
+2. Drag the edited files or the whole `files/` folder to **Import/**. Keep any
+   subfolders and wait until WinSCP finishes uploading.
+3. With the game closed, press **A Import uploaded files** on the Switch.
+
+Downloads remain available during review and import. After verification, refresh
+**Export/** in WinSCP for the updated save. The same session is ready for another
+upload. **B Close session** discards any uploads you have yet to confirm.
+The inbox accepts up to 2 GiB and 4,096 staged items.
+All Saves collections and BCAT exports use the read-only download endpoint.
+
+For a local folder import instead, close the game, select its exact profile/archive
+in OunceCake and press **X Import save** from the archive list. In mac2jb on the Mac, choose the individual
+backup folder containing `manifest.json` and `files/`, confirm that the game is
+closed and confirm the replacement. Keep the manifest unchanged; edit or add files
+inside `files/`. Added Finder/Explorer metadata is skipped. A collection's individual archive folder can also be selected.
+The title, raw UID and complete archive identity must match; there is no automatic
+cross-user conversion. Primary Account and Device archives at index 0 are supported;
+BCAT remains export-only.
+
+Import stages and hashes the selected files locally. WebDAV imports reuse the
+current export as a backup. Local folder imports create a fresh backup. OunceCake
+compares the live save with that backup, then writes, flushes and
+commits once using the existing FS attachment. It reopens the save read-only and
+verifies imported and preserved files. Console files missing from the source are
+kept; imports never implicitly delete files. Backups and readback copies are kept
+in the app session. Use **Show original backup** in the import dialog to locate
+the backup.
+
+Cancel before writing if necessary. Once writing starts, keep the console connected
+and wait for verification. Normal Quit is blocked until the confirmed operation
+settles. Failed or uncertain writes are never retried automatically
+or reported as success; keep the backup and logs if recovery is needed. Import does
+not repair game-specific save checksums. This implementation is locally tested;
+console write/readback testing is still pending. Only the temporary inbox accepts
+WebDAV uploads; the network server never writes directly to the console.
 
 Title rows use the full list width; long names can scale down to fit while retaining their TitleID. The firmware entry omits its internal sentinel ID.
 

@@ -9,6 +9,13 @@ private func embeddedPayloadSize() -> UInt
 
 struct BundledRuntime {
     let root: URL
+    private let directoryHandle: FileHandle?
+
+    init(root: URL, directoryHandle: FileHandle? = nil) {
+        self.root = root
+        self.directoryHandle = directoryHandle
+    }
+
     var host: HostProfile {
         guard let data = try? Data(contentsOf: root.appendingPathComponent("selected-host.json")),
               let value = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -56,8 +63,7 @@ struct BundledRuntime {
         let canonicalSessions = URL(fileURLWithPath: String(cString: resolvedSessions), isDirectory: true)
         free(resolvedSessions)
         let root = canonicalSessions.appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try manager.createDirectory(at: root, withIntermediateDirectories: false,
-                                    attributes: [.posixPermissions: 0o700])
+        let directoryHandle = try SessionDataCleanup.createSession(at: root)
         do {
             let archive = root.appendingPathComponent("runtime.tar.gz")
             try payload.write(to: archive, options: .withoutOverwriting)
@@ -234,7 +240,7 @@ struct BundledRuntime {
             guard select.terminationStatus == 0 else {
                 throw RuntimeError.invalid("Unable to prepare \(host.label): \(String(decoding: data, as: UTF8.self))")
             }
-            return BundledRuntime(root: root)
+            return BundledRuntime(root: root, directoryHandle: directoryHandle)
         } catch {
             try? manager.removeItem(at: root)
             throw error

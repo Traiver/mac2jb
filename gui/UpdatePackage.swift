@@ -131,7 +131,7 @@ struct UpdateCandidate {
         version > installed || version == installed && (build.map { $0 > installedBuild } ?? false)
     }
 
-    var displayVersion: String { version.text + (build.map { " (build \($0))" } ?? "") }
+    var displayVersion: String { AppBuildIdentity.releaseLabel(version.text, build: build) }
 }
 
 // Store the complete validated repository release, so a cached requirement
