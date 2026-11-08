@@ -7,6 +7,7 @@ Switch 2 jailbreaking tool for Mac.
 
 - OunceCake now uses http instead of ftp
 - export extracted firmwares, system titles, games, savegames and more
+- import savegames
 - supports ELicense titles like NSO GC
 - redesigned app and overall enhanced user experience
 
