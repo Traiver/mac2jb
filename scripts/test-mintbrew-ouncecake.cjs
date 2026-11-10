@@ -56,7 +56,7 @@ test('console FTP address is taken only from qualified Switch network state',()=
  assert.equal(value.subarray(128,128+value.readUInt32LE(16)).toString(),'http://192.0.2.20:8080/');
 });
 
-function fixture(t,{serverStopError,handleCloseError,detachError,prepareGame,exportsEngine,saveTools,saveServer,saveImporter,preparationTimeoutMs,realRaster=false,reuseDirectory,deployError,rasterRows,onGameList}={}){
+function fixture(t,{serverStopError,handleCloseError,detachError,prepareGame,exportsEngine,saveTools,saveServer,saveImporter,gameTar,preparationTimeoutMs,realRaster=false,reuseDirectory,deployError,rasterRows,onGameList}={}){
  const directory=reuseDirectory||fs.mkdtempSync(path.join(os.tmpdir(),'mac2jb-ouncecake-service-'));
  t.after(()=>fs.rmSync(directory,{recursive:true,force:true}));
  const events={attach:0,detach:0,deployed:0,stopped:0,mounted:0,closed:[],order:[],fatal:[],writes:[]};
@@ -88,7 +88,7 @@ function fixture(t,{serverStopError,handleCloseError,detachError,prepareGame,exp
  if(exportsEngine)modules.exports=exportsEngine;
  const instance=service.create({rpc,menu,gpu:{fingerprint:'abc',privateStorage:{mapped,bytes:protocol.STORAGE_BYTES}},
   app:{id:'ouncecake',fingerprint:'abc',manifest:{service:'ouncecake-v1'}},directory,root,
-  runDirectory:'/run/switch-test',sourceSession:'switch-test',modules,saveTools,saveServer,saveImporter,preparationTimeoutMs,
+  runDirectory:'/run/switch-test',sourceSession:'switch-test',modules,saveTools,saveServer,saveImporter,gameTar,preparationTimeoutMs,
   liveCheck:async()=>true,
   verifyHeld:async()=>({run:{directory:'/run/switch-test',proof:{session:'switch-test'},
    connection:{addresses:{session:'switch-test'}}},snapshot:{image:Buffer.from('native'),nativeImageSha256:'abc'}}),
@@ -119,6 +119,20 @@ test('A selects one game; short B closes FTP and allows another selection',async
  assert.equal(events.attach,1);assert.equal(events.stopped,2);assert.equal(events.detach,1);
  assert.equal(instance.report.status,'stopped');
  assert.equal(events.fatal.length,0);
+});
+
+test('a game offers TAR alongside its regular URL and stops TAR before the native download server',async t=>{
+ const {instance,events}=fixture(t,{saveServer:{hostAddress:()=> '127.0.0.1'},
+  gameTar:{async start({name,switchAddress}){assert.equal(name,'Test game [0100000000000001].tar');assert.equal(switchAddress,'192.0.2.20');
+   return {url:'http://127.0.0.1:8081/',async close(){events.order.push('tar-stopped');}};}}});
+ await instance.start();await waitFor(()=>instance.report.status,'catalog');
+ await instance.select(0);await waitFor(()=>instance.report.status,'running');
+ assert.equal(instance.report.httpURL,'http://192.0.2.20:8080/');
+ assert.equal(instance.report.tarURL,'http://127.0.0.1:8081/');
+ await instance.back();await waitFor(()=>instance.report.status,'catalog');
+ assert.ok(events.order.indexOf('tar-stopped')<events.order.indexOf('ftp-stopped'));
+ assert.equal(instance.report.tarURL,undefined);
+ await instance.close();
 });
 
 test('uncertain FTP shutdown keeps the held session blocked',async t=>{
@@ -352,8 +366,21 @@ test('selected Unicode title raster has a separate bounded slot and visibility f
 
 test('Japanese selected title stays in its Unicode image tile while operational messages remain ASCII',async t=>{
  const rows=[];const title='ゼルダの伝説 時のオカリナ';
- const {instance,events}=fixture(t,{rasterRows:async games=>{rows.push(games);return Buffer.alloc(games.length*protocol.TILE_BYTES);},exportsEngine:{async discoverExports(){return [{title:'0400486024dec000',name:title,storages:[4]}];},async prepareExport(){return {index:Buffer.alloc(64),sources:[{handle:7}]};}}});
- await instance.start();await waitFor(()=>instance.report.status,'catalog');await instance.select(0);await waitFor(()=>instance.report.status,'running');
+ const headingRaster=Promise.withResolvers();
+ t.after(()=>headingRaster.resolve());
+ const {instance,events}=fixture(t,{rasterRows:async games=>{
+  rows.push(games);
+  if(games[0].heading)await headingRaster.promise;
+  return Buffer.alloc(games.length*protocol.TILE_BYTES);
+ },exportsEngine:{async discoverExports(){return [{title:'0400486024dec000',name:title,storages:[4]}];},async prepareExport(){return {index:Buffer.alloc(64),sources:[{handle:7}]};}}});
+ await instance.start();await waitFor(()=>instance.report.status,'catalog');
+ const selection=instance.select(0);
+ await waitFor(()=>instance.report.status,'preparing');
+ await selection;
+ const preparing=events.writes.findLast(row=>row.bytes.length===protocol.HEADER_BYTES).bytes;
+ assert.equal(preparing.readUInt32LE(28),0);
+ headingRaster.resolve();
+ await waitFor(()=>instance.report.status,'running');
  const heading=rows.flat().find(row=>row.heading);assert.equal(heading.name,title);assert.equal(heading.titleId,'0400486024dec000');
  assert.ok(events.writes.some(row=>row.address===0x500000000+protocol.HEADER_BYTES+protocol.TITLE_TILE_INDEX*protocol.TILE_BYTES));
  const header=events.writes.findLast(row=>row.bytes.length===protocol.HEADER_BYTES).bytes;assert.equal(header.readUInt32LE(28),1);

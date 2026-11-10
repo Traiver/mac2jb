@@ -89,7 +89,7 @@ function createGameFiles(attachment, shouldStop = () => false) {
           ? await openUpdate({ title, storage, attributes, source, section, originalSource: source.originalSource })
           : await openDlcPatch({ attachment:{...attachment, shouldStop}, title, source, originalSource: source.originalSource });
       } else if (update && source.contentType === 1) {
-        source.originalSource = originals.get(source.programIndex) || originals.get(0);
+        source.originalSource = originals.get(source.programIndex);
         handle = await openUpdate({
           title, storage, attributes, source, section,
           originalSource: source.originalSource,

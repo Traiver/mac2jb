@@ -296,7 +296,7 @@ async function readLocation(a, resolver, programId, command = 0) {
     fixedOutput(command, idBytes(programId), address, size),
   );
 
-  const absent = command === 0 ? [0x408, 0x1408] : [0xc08];
+  const absent = command === 0 || command === 16 ? [0x408, 0x1408] : [0xc08];
   if (absent.includes(r.result & 0x3fffff)) return null;
 
   if (r.result) throw resultError('Resolve selected update location', r.result);
@@ -329,12 +329,16 @@ async function writeLocation(a, resolver, programId, title, location, command = 
 
 async function selectPatch({ attachment: a, title, source, originalSource, operation, verifySelected = false }) {
   const runtimeProgramId = source.runtimeProgramId;
+  const indexedUpdate = source.selection === 'update' && source.programIndex > 0;
+  const verifyPatch = verifySelected || indexedUpdate;
   const resolvers = new Map();
   let registered;
   let attempted = false;
   let previous;
 
   return withCleanup(async () => {
+    if (indexedUpdate && originalSource?.programIndex !== source.programIndex)
+      throw new Error('Could not prepare update: no matching Base for program index ' + source.programIndex);
     originalSource ||= await findOriginalContent({
       s: a.s,
       domain: a.domain,
@@ -367,19 +371,17 @@ async function selectPatch({ attachment: a, title, source, originalSource, opera
     
     attempted = true;
     await writeLocation(a, registered, runtimeProgramId, title, patch, 1, 'Register owned patch location');
-    if (verifySelected) {
+    if (verifyPatch) {
       const selected = await readLocation(a, registered, runtimeProgramId);
       if (!selected || selected.contentPath !== patch.contentPath ||
           selected.attributes.slice(0, 2) !== patch.attributes.slice(0, 2))
-        throw new Error('Could not prepare selected Base CodeFS path: resolver readback differs');
+        throw new Error('Could not prepare selected ' + (indexedUpdate ? 'update' : 'Base CodeFS') + ' path: resolver readback differs');
     }
 
     const mount = () =>
       operation({ runtimeProgramId, original, patch, originalContent: originalSource });
-    const result =
-      runtimeProgramId === title
-        ? await mount()
-        : await withProgramIndexMap({
+    const mappedMount = () =>
+      runtimeProgramId === title ? mount() : withProgramIndexMap({
             attachment: a,
             title,
             runtimeProgramId,
@@ -387,16 +389,21 @@ async function selectPatch({ attachment: a, title, source, originalSource, opera
             operation: mount,
           });
 
-    return result;
+    if (!indexedUpdate) return mappedMount();
+    const openedOriginal = success(await a.s.ipc('Open indexed Base location resolver', lr, 0,
+      Buffer.from([originalSource.storage])), 'Open indexed Base location resolver');
+    const resolver = a.domain.oneHandle(openedOriginal);
+    resolvers.set(originalSource.storage, resolver);
+    return withIndexedBasePaths(a, resolver, title, originalSource, mappedMount);
   }, async () => {
     if (!attempted) return;
     if (previous) {
       await writeLocation(a, registered, runtimeProgramId, title, previous, 1, 'Restore previous program location');
-      if (verifySelected) {
+      if (verifyPatch) {
         const restored = await readLocation(a, registered, runtimeProgramId);
         if (!restored || restored.contentPath !== previous.contentPath ||
             restored.attributes.slice(0, 2) !== previous.attributes.slice(0, 2))
-          throw new Error('Base CodeFS resolver restoration could not be verified');
+          throw new Error('Selected program resolver restoration could not be verified');
       }
       return;
     }
@@ -404,9 +411,42 @@ async function selectPatch({ attachment: a, title, source, originalSource, opera
     if (!actual) return;
     success(await a.s.ipc('Remove owned patch location', registered, 2, idBytes(runtimeProgramId)),
       'Remove owned patch location');
-    if (verifySelected && await readLocation(a, registered, runtimeProgramId))
-      throw new Error('Base CodeFS resolver removal could not be verified');
+    if (verifyPatch && await readLocation(a, registered, runtimeProgramId))
+      throw new Error('Selected program resolver removal could not be verified');
   }, () => closeHandles(a.s, [...resolvers.values(), registered].filter(Boolean)));
+}
+
+async function withIndexedBasePaths(a, resolver, title, source, operation) {
+  const programId = source.runtimeProgramId;
+  const selected = contentLocation(source);
+  const paths = [{ read: 0, write: 10, erase: 12 }, { read: 16, write: 18, erase: 19 }];
+  const matches = (left, right) => left?.contentPath === right?.contentPath &&
+    left?.attributes === right?.attributes;
+
+  return withCleanup(async () => {
+    for (const route of paths) route.previous = await readLocation(a, resolver, programId, route.read);
+    for (const route of paths) {
+      if (matches(route.previous, selected)) continue;
+      route.changed = true;
+      await writeLocation(a, resolver, programId, title, selected, route.write, 'Select indexed Base location');
+      if (!matches(await readLocation(a, resolver, programId, route.read), selected))
+        throw new Error('Could not prepare indexed Base: resolver readback differs');
+    }
+    return operation();
+  }, () => cleanup(paths.map(route => async () => {
+    if (!route.changed) return;
+    let restored = await readLocation(a, resolver, programId, route.read);
+    if (!matches(restored, route.previous)) {
+      success(await a.s.ipc('Remove temporary indexed Base location', resolver, route.erase,
+        idBytes(programId)), 'Remove temporary indexed Base location');
+      restored = await readLocation(a, resolver, programId, route.read);
+      if (route.previous && !matches(restored, route.previous)) {
+        await writeLocation(a, resolver, programId, title, route.previous, route.write, 'Restore indexed Base location');
+        restored = await readLocation(a, resolver, programId, route.read);
+      }
+    }
+    if (!matches(restored, route.previous)) throw new Error('Indexed Base resolver restoration could not be verified');
+  })));
 }
 
 // special handling for manuals. they mount weird.

@@ -35,7 +35,7 @@ function ipv4(data){
 }
 
 function create({rpc,menu,gpu,app,directory,root,runDirectory,sourceSession,
- onProgress=()=>{},onFatal=()=>{},onGameList=async()=>{},modules,verifyHeld,rasterGames,liveCheck,saveImporter=require('./save-import.cjs'),saveTools=require('./saves.cjs'),saveServer=require('./save-server.cjs'),preparationTimeoutMs=DEFAULT_TIMEOUT_MS}={}){
+ onProgress=()=>{},onFatal=()=>{},onGameList=async()=>{},modules,verifyHeld,rasterGames,liveCheck,saveImporter=require('./save-import.cjs'),saveTools=require('./saves.cjs'),saveServer=require('./save-server.cjs'),gameTar=require('./game-tar.cjs'),preparationTimeoutMs=DEFAULT_TIMEOUT_MS}={}){
  check(rpc&&menu&&gpu&&app&&typeof directory==='string'&&typeof root==='string'&&
   typeof runDirectory==='string'&&typeof sourceSession==='string',
   'OunceCake requires the held MintBrew session');
@@ -53,7 +53,7 @@ function create({rpc,menu,gpu,app,directory,root,runDirectory,sourceSession,
   exports:require(path.join(vendor,'engine/exports.cjs')),
  };
  let started=false,stopping=false,selected=false,status=protocol.STATES.reading;
- let task,attachment,server,run,games=[],failure,closing,nativeImage,baselineHandles;
+ let task,attachment,server,tar,run,games=[],failure,closing,nativeImage,baselineHandles;
  let allEntries=[],catalogs,view='root',generation=0,focus=0,partTitle,saveTitle,titleVisible=false;
  let libraryArchives=[],libraryGroups=[],libraryPage=0,archiveRows=[],saveParent='root';
  let importRequest;
@@ -98,7 +98,12 @@ function create({rpc,menu,gpu,app,directory,root,runDirectory,sourceSession,
   if(stopping)return;
   try{await onGameList();}catch(error){onProgress('MintFTP: '+error.message);}
  }
+ async function stopTar(){
+  if(!tar)return;
+  await tar.close();tar=null;delete report.tarURL;
+ }
  async function stopServer(){
+  await stopTar();
   if(server){
    try{
     if(server.kind!=='local-save')check(await live(),'OunceCake lost its held session before HTTP/WebDAV shutdown');
@@ -489,14 +494,18 @@ function create({rpc,menu,gpu,app,directory,root,runDirectory,sourceSession,
    selected=true;const previous=task;track((async()=>{await previous;if(stopping)return;await showParts(chosen);selected=false;})());return;
   }
   selected=true;report.titleId=games[index].titleId;report.exportKind=games[index].kind||'game';delete report.error;delete report.romfsDiagnostic;delete report.rawFallbackReason;delete report.rawFallbackCode;delete report.exportInfo;delete report.allocationFailure;
-  const selectedTitle=games[index].titleName||games[index].name;
-  await renderTitle(games[index]);
-  await publish(protocol.STATES.preparing,'Preparing export'+(games[index].kind==='firmware-nca'?'':' ['+games[index].titleId+']'));
-  onProgress('OunceCake: Exporting '+selectedTitle+' ['+games[index].titleId+']'+(games[index].exportPart?' - '+games[index].name:''));
+  const selectedTitle=chosen.titleName||chosen.name;
+  const message='Preparing export'+(chosen.kind==='firmware-nca'?'':' ['+chosen.titleId+']');
+  titleVisible=false;
+  await publish(protocol.STATES.preparing,message);
+  onProgress('OunceCake: Exporting '+selectedTitle+' ['+chosen.titleId+']'+(chosen.exportPart?' - '+chosen.name:''));
   const previous=task;
   track((async()=>{
    await previous;
    if(stopping)return;
+   await renderTitle(chosen);
+   if(stopping)return;
+   await publish(protocol.STATES.preparing,message);
    check(await live(),'The held RPC session ended before game preparation');
    const network=await rpc.read(menu.controls.mapped+layout.OFFSET,
     layout.FIELD.network+24);
@@ -590,7 +599,17 @@ function create({rpc,menu,gpu,app,directory,root,runDirectory,sourceSession,
    if(stopping)return;
    check(await live(),'The held RPC session ended during HTTP/WebDAV startup');
    report.httpURL='http://'+address+':8080/';
-   await publish(protocol.STATES.running,(raw?'RAW HTTP://':prepared.exportInfo?.partial?'PARTIAL HTTP://':prepared.exportInfo?.merged?'COMBINED HTTP://':'HTTP://')+address+':8080/');
+   if(!raw&&(!entry.kind||entry.kind==='game')){
+    try{
+     const part=entry.exportPart?' - '+entry.name:'';
+     const partial=prepared.exportInfo?.partial?' - Partial':'';
+     tar=await gameTar.start({index:prepared.index,name:titleLabel(entry)+part+partial+'.tar',
+      switchAddress:address,address:saveServer.hostAddress(address)});
+     report.tarURL=tar.url;onProgress('OunceCake: TAR (Mac): '+tar.url);
+    }catch(error){onProgress('OunceCake: Optional TAR download unavailable: '+error.message);}
+   }
+   await publish(protocol.STATES.running,(raw?'RAW HTTP://':prepared.exportInfo?.partial?'PARTIAL HTTP://':prepared.exportInfo?.merged?'COMBINED HTTP://':'HTTP://')+address+':8080/',
+    games.length,tar?'TAR (Mac): '+tar.url:'');
    onProgress('OunceCake: '+report.httpURL);
   })());
  }
@@ -621,6 +640,7 @@ function create({rpc,menu,gpu,app,directory,root,runDirectory,sourceSession,
    stopping=true;
    await task;
    if(importRequest)await cancelImport();
+   await stopTar();
    if(server?.kind==='local-save')await stopServer();
    if(report.cleanupBlocked)throw failure||Object.assign(Error('OunceCake native cleanup is uncertain'),{cleanupBlocked:true});
    await releaseOwned();

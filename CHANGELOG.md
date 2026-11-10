@@ -3,6 +3,9 @@
 ## Unreleased
 
 - Support SmileBASIC Demo 4.4.6 display and controller imports when launching MistBrew.
+- Fix OunceCake update exports for games with additional program indices.
+- Offer an optional resumable TAR download alongside OunceCake's game folders.
+- Make OunceCake respond faster when confirming selections or holding Up/Down.
 
 ## mac2jb v0.7.6 — Build 544
 

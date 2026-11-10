@@ -371,6 +371,13 @@ to stop. The ice-blue scrollbar at the right shows the current visible position.
 It is hidden when all entries fit on one page. Connect to the displayed HTTP/WebDAV address on port 8080
 with a browser or WinSCP (WebDAV, no TLS or credentials).
 
+For a decrypted game export, OunceCake also shows **TAR (Mac)** when the Mac can
+serve on port 8081. Open that address in a browser or WinSCP (WebDAV) to download
+the current selection as one resumable `.tar` file. The archive preserves the
+title folder and the exported content folders. Keep OunceCake on the export
+screen while downloading. The Switch address on port 8080 still serves the
+individual files and folders.
+
 `[Folder] Save Games` is the second OunceCake entry, directly below Firmware.
 It reads the console's complete User/SD-User save index independently of the
 installed-game catalog, so saves from uninstalled games remain accessible.

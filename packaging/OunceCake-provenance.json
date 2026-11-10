@@ -115,6 +115,11 @@
       "date": "2026-11-05",
       "file": "engine/mounts.cjs",
       "description": "Retain readable program sections as an explicitly partial export when an unsupported original-content manual cannot mount; propagate cancellation, cleanup and transport failures."
+    },
+    {
+      "date": "2026-11-08",
+      "file": "engine/program.cjs, engine/mounts.cjs",
+      "description": "Port the indexed program update fix from MissHexa 58ff39a. Match the original program index and temporarily select its Base locations; verify resolver restoration under the fork's existing cleanup rules."
     }
   ],
   "httpBase": {
