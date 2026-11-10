@@ -1,6 +1,6 @@
 {
   "format": "mac2jb-host-profiles-v1",
-  "default": "cellenseres",
+  "default": "kurumuz",
   "profiles": [
     {
       "id": "pepsipu",
@@ -33,6 +33,9 @@
       "startArgumentCount": 5,
       "supportsHeldRPC": true,
       "supportsDemo": true,
+      "supportsSaveKit": true,
+      "supportsNativeHBLauncher": true,
+      "supportsModloader": true,
       "licenseStatus": "No license file supplied by this pinned upstream; README and original source notices are retained.",
       "distributionManifest": "vendor/ns2jb-hosts/kurumuz/SHA256SUMS",
       "upstreamManifest": "packaging/ns2jb-kurumuz-81d5bb1-SHA256SUMS.upstream",
@@ -48,12 +51,15 @@
       "revision": "2f686045ff88e5a97f959d19752e00ef3b62011f",
       "upstream": "https://github.com/Cellenseres/ns2jb",
       "sourceDirectory": "vendor/ns2jb-hosts/cellenseres",
-      "sourceSha256": "8f821acf526afa481b01b3c3faf22e56b99d650759e0023aaaf3159075453415",
+      "sourceSha256": "c2d15929626bb1acf4739d484b353b58c04ba0c6a3206415ded7ad56267af0d5",
       "bootstrap": "assets/hosts/cellenseres/bootstrap.bas",
       "bootstrapSha256": "dca34ac7977cfd3f7cb657a79da925450472b6527ea83d022a9aa25510b168d5",
       "startArgumentCount": 5,
       "supportsHeldRPC": true,
       "supportsDemo": true,
+      "supportsSaveKit": true,
+      "supportsNativeHBLauncher": true,
+      "supportsModloader": true,
       "licenseStatus": "No license file supplied by this pinned upstream; README and provenance are retained.",
       "distributionManifest": "vendor/ns2jb-hosts/cellenseres/SHA256SUMS",
       "upstreamManifest": "packaging/ns2jb-cellenseres-2f68604-SHA256SUMS.upstream",
@@ -88,9 +94,9 @@
       "label": "IZMYSH",
       "revision": "d7a0df16e7e0c68acf78d2f68da8496ef3d9fd6b",
       "upstream": "https://github.com/byizmysh/IZ2S-Platform",
-      "sourceDirectory": "vendor/IZ2S-Platform/engines/izmysh",
+      "sourceDirectory": "vendor/ns2jb-hosts/izmysh-legacy",
       "sourceSha256": "ce74321f98f1cd50cfdd335a45f6d27c882afa1074eab8b58cef52a677097fc2",
-      "bootstrap": "vendor/IZ2S-Platform/engines/izmysh/bootstrap.bas",
+      "bootstrap": "vendor/ns2jb-hosts/izmysh-legacy/bootstrap.bas",
       "bootstrapSha256": "2261f65fb9ec0ed708ce0f0b6da5057168f706e541d956f658a3c2655e9e8c36",
       "startArgumentCount": 9,
       "startPort": 39395,
@@ -99,10 +105,34 @@
       "supportsHeldRPC": false,
       "supportsDemo": false,
       "licenseStatus": "IZMYSH code is GPL-2.0-or-later; inherited component terms and prior grants remain applicable.",
-      "distributionManifest": "packaging/IZ2S-Platform-SHA256SUMS",
+      "distributionManifest": "packaging/IZMYSH-legacy-SHA256SUMS",
       "supportedSmileBASIC": [
         "4.4.9 full"
       ]
+    },
+    {
+      "id": "astral",
+      "label": "Astral (custom)",
+      "revision": "81d5bb114c856109dadaf1077d927a9f297fe58d",
+      "upstream": "https://gitlab.com/kurumuz/ns2jb",
+      "sourceDirectory": "vendor/ns2jb-hosts/astral",
+      "sourceSha256": "75a1036ea4575174f994ac79d153ab2dabbf210237508dbc9f8138cc59e0015c",
+      "bootstrap": "assets/hosts/astral/bootstrap.bas",
+      "bootstrapSha256": "dca34ac7977cfd3f7cb657a79da925450472b6527ea83d022a9aa25510b168d5",
+      "startArgumentCount": 5,
+      "supportsHeldRPC": true,
+      "supportsDemo": true,
+      "licenseStatus": "No license file supplied by this pinned upstream; README and original source notices are retained.",
+      "distributionManifest": "vendor/ns2jb-hosts/astral/SHA256SUMS",
+      "upstreamManifest": "packaging/ns2jb-kurumuz-81d5bb1-SHA256SUMS.upstream",
+      "localPatch": "packaging/ns2jb-kurumuz-abi3-range-patch.json",
+      "supportedSmileBASIC": [
+        "4.4.9 full",
+        "4.4.6 demo"
+      ],
+      "supportsSaveKit": true,
+      "supportsNativeHBLauncher": true,
+      "customVersion": "0.2.0-experimental"
     }
   ]
 }

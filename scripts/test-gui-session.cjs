@@ -34,9 +34,9 @@ function completeJSONRecords(output) {
   if (newline < 0) return [];
   return output.slice(0, newline).split('\n').filter(Boolean).map(JSON.parse);
 }
-function held() {
+function held(hostId = 'kurumuz') {
   return {verified:true,
-    sourceSha256:require('../packaging/host-profiles.json').profiles.find(profile=>profile.id==='kurumuz').sourceSha256,
+    sourceSha256:require('../packaging/host-profiles.json').profiles.find(profile=>profile.id===hostId).sourceSha256,
     fs:{verified:true, restored:true, retainedEndpoint:{ready:true,session:'switch2-test'},
     cleanup:{deferred:true,donor:{cleanedUp:true}}}, rpc:{mode:'held',state:'listening'}};
 }
@@ -51,6 +51,10 @@ function fixture(t, options = {}) {
     path.join(root,'integrations/mintbrew-native/sd-roms.cjs'));
   fs.mkdirSync(path.join(root,'packaging'));
   fs.copyFileSync(path.join(__dirname,'../packaging/host-profiles.json'),path.join(root,'packaging/host-profiles.json'));
+  if(options.hostId) {
+    const profile=require('../packaging/host-profiles.json').profiles.find(profile=>profile.id===options.hostId);
+    fs.writeFileSync(path.join(root,'selected-host.json'),JSON.stringify(profile));
+  }
   fs.writeFileSync(path.join(host,'worker.cjs'),[
     "const fs=require('fs');",
     "process.on('SIGTERM',()=>{fs.writeFileSync('group-signal.txt','wrong');process.exit(7);});",
@@ -65,7 +69,7 @@ function fixture(t, options = {}) {
     "process.stdout.write(evidence+'Error: listen EADDRNOTAVAIL: address not available 127.0.0.1:39380\\n    at Server.setupListenHandle (node:net:1:1)\\n'+(options.latePairing?'V=START(39380,127,0,0,1)\\n':''));setInterval(()=>{},1000);",
     "}else{",
     "const directory=path.join(__dirname,'runs/switch2-test');fs.mkdirSync(directory,{recursive:true});",
-    'let result='+JSON.stringify(held())+';',
+    'let result='+JSON.stringify(held(options.hostId))+';',
     'if(options.invalid)result.fs.restored=false;',
     "const save=()=>fs.writeFileSync(path.join(directory,'result.json'),JSON.stringify(result));",
     "fs.writeFileSync(path.join(directory,'connection.json'),JSON.stringify({port:12345,addresses:{session:options.wrongSession?'wrong':'switch2-test',target:'switch2'}}));",
@@ -100,6 +104,14 @@ function fixture(t, options = {}) {
       "fs.writeFileSync(path.join(dump,'firmware-dump.json'),JSON.stringify({complete:true,inventory:{total:1},entries:"+(options.badManifest?'[]':"[{id:'test'}]")+"}));console.log('Firmware: manifest complete');process.exit(0);",
     '},'+Number(options.dumpMs||30)+');'
   ].join('\n'));
+  fs.writeFileSync(path.join(root,'scripts/gui-modloader.cjs'),[
+    "const fs=require('fs'),path=require('path');const options="+JSON.stringify(options)+";",
+    "exports.validateModsFolder=folder=>{if(folder!=='/tmp/mods')throw Error('Invalid mod root');return folder;};",
+    "if(require.main===module){const run=process.argv[2];fs.writeFileSync(path.join(run,'modloader-invoked'),'yes');",
+    "const emit=(type,fields={})=>console.log('MAC2JB_MODLOADER '+JSON.stringify({type,message:'test '+type,...fields}));",
+    "if(options.modloaderRetrySafe){emit('failed',{retrySafe:true});process.exit(1);}",
+    "emit('started');emit('progress');setTimeout(()=>{emit('ready',{path:path.join(run,'.mac2jb-modloader-test')});process.exit(0);},15);}",
+  ].join('\n'));
   fs.writeFileSync(path.join(root,'scripts/gui-homebrew.cjs'),[
     "const fs=require('fs'),path=require('path');const options="+JSON.stringify(options)+";",
     "exports.preflightCustomApp=async(root,folder)=>{fs.appendFileSync(path.join(root,'custom-preflight-calls.txt'),folder+'\\n');",
@@ -117,7 +129,7 @@ function fixture(t, options = {}) {
     "const close=code=>setTimeout(()=>{fs.writeFileSync('homebrew-stop-completed','yes');process.exit(code);},options.hblCloseMs||20);",
     "process.on('SIGTERM',()=>{if(terminal){fs.writeFileSync('homebrew-extra-signal','wrong');return;}if(stop)return;stop=true;",
     "setTimeout(()=>{terminal=true;emit(options.hblStopFail?'failed':running?'stopped':'failed');close(options.hblStopFail?1:running?0:1);},options.hblStopMs||20);});",
-    "emit('started');emit('progress');setTimeout(()=>{if(stop)return;",
+    "emit('started');emit('progress');if(options.hblFpsNoise){console.log('HBLauncher continuous: 60 frames / 1.000s');console.log('OunceCake: FTP on this Mac ftp://127.0.0.1:32123/');}setTimeout(()=>{if(stop)return;",
     "if(options.hblFail||options.hblFailFirst&&fs.readFileSync('homebrew-invocations.txt','utf8').trim().split('\\n').length===1){terminal=true;emit('failed');close(1);return;}",
     "running=true;emit('running');if(options.hblTerminal)setTimeout(()=>{terminal=true;emit(options.hblTerminal);close(options.hblTerminal==='failed'?1:0);},10);",
     "},options.hblLaunchMs||20);setInterval(()=>{},1000);",
@@ -213,6 +225,42 @@ test('held proof requires restoration, a live endpoint and deferred donor cleanu
     value=>{value.error='failed';},value=>{value.completed='done';},value=>{value.cleanupErrors=[{error:'failed'}];}]){
     const value=held();modify(value);assert.equal(heldResult(value),false);
   }
+});
+for(const hostId of ['kurumuz','cellenseres']) {
+test('Modloader waits for held '+hostId+' RPC, then leaves a verified game handoff for Finish',{timeout:10000},async t=>{
+  const session=fixture(t,hostId==='kurumuz'?{}:{hostId});await session.wait('post-run-ready');
+  session.send({action:'modloader-install',modsFolder:'/tmp/mods'});
+  assert.match((await session.wait('action-rejected')).message,/free Kurumuz or Cellenseres held RPC/);
+  session.send({action:'post-run',keepRPC:true,dumpFirmware:false});await session.wait('rpc-held');
+  session.send({action:'modloader-install',modsFolder:'/tmp/bad'});
+  assert.match((await session.wait('action-rejected',2)).message,/Invalid mod root/);
+  session.send({action:'modloader-install',modsFolder:'/tmp/mods'});
+  await session.wait('modloader-started');await session.wait('modloader-progress');
+  assert.match((await session.wait('modloader-ready')).message,/test ready/);
+  session.send({action:'launch-mintbrew'});
+  assert.match((await session.wait('action-rejected',3)).message,/final action/);
+  session.send({action:'finish'});const result=await session.done;
+  assert.equal(result.code,0,result.output+result.error);
+  assert.match(session.events().find(event=>event.type==='verified').message,/without restarting the Switch/);
+  assert.equal(fs.readFileSync(path.join(session.host,'runs/switch2-test/modloader-invoked'),'utf8'),'yes');
+});
+test('Modloader preflight failure keeps held '+hostId+' RPC available for MintBrew',{timeout:10000},async t=>{
+  const session=fixture(t,{...(hostId==='kurumuz'?{}:{hostId}),modloaderRetrySafe:true});await session.wait('post-run-ready');
+  session.send({action:'post-run',keepRPC:true,dumpFirmware:false});await session.wait('rpc-held');
+  session.send({action:'modloader-install',modsFolder:'/tmp/mods'});
+  const failed=await session.wait('modloader-failed');
+  assert.equal(failed.retrySafe,true);
+  session.send({action:'launch-mintbrew'});await session.wait('homebrew-running');
+  session.send({action:'finish'});assert.equal((await session.done).code,0);
+});
+}
+test('Modloader does not use an Astral held session without a verified Modloader capability',{timeout:10000},async t=>{
+  const session=fixture(t,{hostId:'astral'});await session.wait('post-run-ready');
+  session.send({action:'post-run',keepRPC:true,dumpFirmware:false});await session.wait('rpc-held');
+  session.send({action:'modloader-install',modsFolder:'/tmp/mods'});
+  assert.match((await session.wait('action-rejected')).message,/Kurumuz or Cellenseres/);
+  assert.equal(fs.existsSync(path.join(session.host,'runs/switch2-test/modloader-invoked')),false);
+  session.send({action:'finish'});assert.equal((await session.done).code,0);
 });
 test('held adapter bind failure preserves the Mac error without pairing, HID or replay',{timeout:10000},async t=>{
   const session=fixture(t,{bindFailure:true,latePairing:true});const result=await session.done;
@@ -597,6 +645,15 @@ test('read-only custom preparation failure keeps held RPC available for a differ
   assert.equal(fs.readFileSync(path.join(session.root,'homebrew-invocations.txt'),'utf8').trim().split('\n').length,2);
   session.send({action:'finish'});assert.equal((await session.done).code,0);
 });
+test('homebrew frame timing does not bury the FTP address in session logs',{timeout:10000},async t=>{
+  const session=fixture(t,{expectHomebrew:true,hblFpsNoise:true});await session.wait('post-run-ready');
+  session.send({action:'post-run',keepRPC:true,dumpFirmware:false});await session.wait('rpc-held');
+  session.send({action:'launch-mintbrew'});await session.wait('homebrew-running');
+  const messages=session.events().filter(event=>event.type==='log').map(event=>event.message);
+  assert.ok(messages.some(message=>message.includes('FTP on this Mac ftp://127.0.0.1:32123/')));
+  assert.equal(messages.some(message=>message.includes('HBLauncher continuous: 60 frames / 1.000s')),false);
+  session.send({action:'finish'});assert.equal((await session.done).code,0);
+});
 test('EOF during homebrew setup stops the helper before ending original RPC',{timeout:10000},async t=>{
   const session=fixture(t,{expectHomebrew:true,hblLaunchMs:5000});await session.wait('post-run-ready');
   session.send({action:'post-run',keepRPC:true,dumpFirmware:false});await session.wait('rpc-held');
@@ -779,7 +836,8 @@ function ounceFixture(t, options={}) {
     fs.writeFileSync('homebrew-pid',String(process.pid));
     fs.appendFileSync('homebrew-invocations.txt',process.argv[2]+'\n');
     function running(){const host=options.wrongEndpoint?'192.0.2.50':config.consoleAddress;
-      emit('running',{host,port:8080,httpURL:'http://'+host+':8080/'});
+      emit('running',{host,port:8080,httpURL:'http://'+host+':8080/',
+        ...(config.mode==='ftp'?{ftpURL:options.badFTP?'ftp://192.0.2.50:34678/':'ftp://127.0.0.1:34678/'}:{})});
       if(options.exitAfterRunningZero)setTimeout(()=>process.exit(0),10);
       if(options.cleanupBlocked)setTimeout(()=>emit('failed',{cleanupBlocked:true}),20);
     }
@@ -830,6 +888,28 @@ test('OunceCake requires confirmed held RPC, an explicit console IP and one tool
   session.send({action:'finish'});assert.equal((await session.done).code,0);
   assert.equal(fs.readFileSync(path.join(session.host,'hbl-was-stopped.txt'),'utf8'),'true');
   assert.equal(fs.readFileSync(path.join(session.root,'homebrew-invocations.txt'),'utf8').trim().split('\n').length,1);
+});
+
+test('OunceCake FTP choice requires a Mac-local bridge address before reporting readiness',{timeout:10000},async t=>{
+  const session=ounceFixture(t);await ounceHeld(session);
+  session.send({action:'launch-ouncecake',consoleAddress:'192.0.2.20',mode:'ftp'});
+  await session.wait('homebrew-catalog');
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(session.root,'ounce-config.json'),'utf8')),
+    {consoleAddress:'192.0.2.20',port:8080,mode:'ftp'});
+  session.send({action:'select-ouncecake-game',titleId:ounceGame.titleId});
+  const running=await session.wait('homebrew-running');
+  assert.equal(running.ftpURL,'ftp://127.0.0.1:34678/');
+  session.send({action:'finish'});assert.equal((await session.done).code,0);
+});
+
+test('OunceCake rejects a nonlocal FTP bridge address',{timeout:10000},async t=>{
+  const session=ounceFixture(t,{badFTP:true});await ounceHeld(session);
+  session.send({action:'launch-ouncecake',consoleAddress:'192.0.2.20',mode:'ftp'});
+  await session.wait('homebrew-catalog');
+  session.send({action:'select-ouncecake-game',titleId:ounceGame.titleId});
+  await session.wait('homebrew-stopped');
+  assert.equal(session.events().some(event=>event.type==='homebrew-running'),false);
+  session.send({action:'finish'});assert.equal((await session.done).code,1);
 });
 
 test('OunceCake selection accepts one catalog member and rejects invalid, stale and repeated choices',{timeout:10000},async t=>{

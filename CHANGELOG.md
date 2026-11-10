@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Merge Astral host support, Modloader, new save installers, and persistent USB and network preferences from upstream.
+- Add optional Mac-local FTP for direct OunceCake exports and improve physical GameCard handling.
+
 - Support SmileBASIC Demo 4.4.6 display and controller imports when launching MistBrew.
 - Fix OunceCake update exports for games with additional program indices.
 - Offer an optional resumable TAR download alongside OunceCake's game folders.

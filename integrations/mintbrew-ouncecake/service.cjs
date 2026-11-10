@@ -15,7 +15,7 @@ const check=(value,message)=>{if(!value)throw Error(message);};
 const blocked=error=>Boolean(error?.cleanupBlocked||error?.errors?.some(blocked));
 const recoverableContentError=error=>!blocked(error)&&!(error instanceof AggregateError)&&
  error?.code!=='FTP_CANCELLED'&&Boolean(error?.nativeResult||canRawFallback(error)||
-  ['PREPARATION_TIMEOUT','RAW_EXPORT_UNAVAILABLE','EXPORT_PART_EMPTY','COMPACTED_BASE'].includes(error?.code)||
+  ['PREPARATION_TIMEOUT','RAW_EXPORT_UNAVAILABLE','EXPORT_PART_EMPTY','COMPACTED_BASE','GAME_CARD_RIGHTS_UNAVAILABLE'].includes(error?.code)||
   (error?.code==='HTTP_SERVER_ALLOCATION_FAILED'&&error.retrySafe===true)||
   /^(Invalid RomFS:|Invalid server index:|Could not prepare |No installed base Program content was found|Content requires an original-content mount)/.test(error?.message||''));
 
@@ -560,7 +560,7 @@ function create({rpc,menu,gpu,app,directory,root,runDirectory,sourceSession,
    let prepared;
    try{prepared=await prepare(raw);}
    catch(error){
-    if(!raw&&canRawFallback(error)&&engine.exports?.prepareTitleNcas&&!server&&attachment.s.threads.size===0&&!stopping){
+    if(!raw&&error.code!=='GAME_CARD_RIGHTS_UNAVAILABLE'&&canRawFallback(error)&&engine.exports?.prepareTitleNcas&&!server&&attachment.s.threads.size===0&&!stopping){
      // The failed operation has settled. Prove partial-view cleanup before opening raw storage.
      await releaseSelectedHandles();
      raw=true;report.rawFallbackReason=error.message;

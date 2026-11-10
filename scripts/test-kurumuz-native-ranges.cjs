@@ -17,6 +17,14 @@ const rangeFiles = new Set([
   'engine/switch2/ro/payload/manifest.json'
 ]);
 const sha = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
+test('Astral inherits the pinned Kurumuz native range and SaveKit overlay inputs', () => {
+  const root = path.resolve(__dirname, '..');
+  for (const name of [...rangeFiles, 'engine/switch2/process/client.cjs',
+    'engine/shared/ipc.cjs', 'engine/switch2/ro/ncm.cjs',
+    'engine/switch2/app/mounted-save.cjs'])
+    assert.equal(sha(fs.readFileSync(path.join(root, 'vendor/ns2jb-hosts/astral', name))),
+      sha(fs.readFileSync(path.join(root, 'vendor/ns2jb-hosts/kurumuz', name))), name);
+});
 const originalLoad = Module._load;
 Module._load = function(request, parent, main) {
   if (parent?.filename.endsWith('/process/client.cjs') && request === '../tools/fs-memory.cjs')
@@ -33,7 +41,7 @@ try {
 finally {Module._load = originalLoad;}
 
 for (const [host, Client] of Object.entries(clients)) {
-test(host + ' distribution changes only the documented native range files', () => {
+test(host + ' distribution changes only documented local patch files', () => {
   const root = path.resolve(__dirname, '..');
   const profile = profileById(host);
   const folder = path.join(root, profile.sourceDirectory);
@@ -42,8 +50,10 @@ test(host + ' distribution changes only the documented native range files', () =
   const upstream = entries(profile.upstreamManifest);
   const distributed = entries(profile.distributionManifest);
   assert.deepEqual([...upstream.keys()].sort(), [...distributed.keys()].sort());
-  assert.deepEqual(new Set([...upstream.keys()].filter(name =>
-    upstream.get(name) !== distributed.get(name))), rangeFiles);
+  const changed = new Set([...upstream.keys()].filter(name => upstream.get(name) !== distributed.get(name)));
+  const cleanupPatch = host === 'cellenseres' ? 'engine/switch2/memory/fs-memory-control.cjs' : null;
+  if (cleanupPatch) assert.equal(changed.delete(cleanupPatch), true);
+  assert.deepEqual(changed, rangeFiles);
   for (const [name, digest] of distributed)
     assert.equal(sha(fs.readFileSync(path.join(folder, name))), digest, name);
   const patch = JSON.parse(fs.readFileSync(path.join(root, profile.localPatch), 'utf8'));
@@ -52,6 +62,7 @@ test(host + ' distribution changes only the documented native range files', () =
   assert.equal(patch.sourceSha256, profile.sourceSha256);
   assert.equal(patch.sourceSha256, sourceDigest(folder, profile));
   assert.equal(patch.payloadSha256, distributed.get('engine/switch2/ro/payload/main'));
+  if (cleanupPatch) assert.equal(patch.cleanupPatch, cleanupPatch);
 });
 test(host + ' native range payload maps RX and RW, verifies bounds and rolls back failures', () => {
   const root = path.resolve(__dirname, '..');

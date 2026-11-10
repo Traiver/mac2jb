@@ -10,10 +10,10 @@ const {profiles,profileById,selectedProfile,sourceDigest,trustedProfileForDigest
 const {verifyProfile,selectHost} = require('./prepare-host-profiles.cjs');
 const root = path.resolve(__dirname,'..');
 
-test('five pinned host sources preserve their original bootstraps and capabilities', async () => {
-  assert.deepEqual(profiles.map(row=>row.label),['pepsipu','kurumuz','Cellenseres','BermTheSequel','IZMYSH']);
-  assert.equal(new Set(profiles.map(row=>row.sourceSha256)).size,5);
-  assert.equal(selectedProfile(root).id,'cellenseres');
+test('pinned host sources preserve their bootstraps and capabilities', async () => {
+  assert.deepEqual(profiles.map(row=>row.label),['pepsipu','kurumuz','Cellenseres','BermTheSequel','IZMYSH','Astral (custom)']);
+  assert.equal(new Set(profiles.map(row=>row.sourceSha256)).size,6);
+  assert.equal(selectedProfile(root).id,'kurumuz');
   for (const profile of profiles) {
     const folder=verifyProfile(root,profile);
     assert.equal(sourceDigest(folder,profile),profile.sourceSha256);
@@ -31,6 +31,11 @@ test('five pinned host sources preserve their original bootstraps and capabiliti
   assert.equal(profileById('kurumuz').supportsDemo,true);
   assert.equal(profileById('cellenseres').supportsDemo,true);
   assert.equal(profileById('cellenseres').supportsHeldRPC,true);
+  assert.equal(profileById('kurumuz').supportsModloader,true);
+  assert.equal(profileById('cellenseres').supportsModloader,true);
+  assert.equal(profileById('astral').supportsModloader,undefined);
+  assert.equal(profileById('astral').supportsHeldRPC,true);
+  assert.equal(profileById('astral').supportsSaveKit,true);
   assert.equal(profileById('BermTheSequel').supportsDemo,true);
   assert.equal(profileById('izmysh').startPort,39395);
   assert.equal(profileById('izmysh').saveName,'NS2I');
@@ -80,12 +85,14 @@ test('fresh runtime selection installs actual selected code and keeps trusted or
     fs.mkdirSync(path.join(runtime,'source/vendor'),{recursive:true});
     fs.cpSync(path.join(root,'vendor/ns2jb'),path.join(runtime,'source/vendor/ns2jb'),{recursive:true});
     fs.cpSync(path.join(root,'vendor/IZ2S-Platform'),path.join(runtime,'source/vendor/IZ2S-Platform'),{recursive:true});
+    fs.cpSync(path.join(root,'vendor/ns2jb-hosts/izmysh-legacy'),
+      path.join(runtime,'source/vendor/ns2jb-hosts/izmysh-legacy'),{recursive:true});
     fs.mkdirSync(path.join(runtime,'vendor'),{recursive:true});
     fs.cpSync(path.join(root,'vendor/ns2jb'),path.join(runtime,'vendor/ns2jb'),{recursive:true});
     fs.cpSync(path.join(root,'vendor/ns2jb-hosts'),path.join(runtime,'vendor/ns2jb-hosts'),{recursive:true});
     fs.cpSync(path.join(root,'vendor/IZ2S-Platform'),path.join(runtime,'vendor/IZ2S-Platform'),{recursive:true});
     fs.mkdirSync(path.join(runtime,'packaging'),{recursive:true});
-    for (const name of ['IZ2S-Platform-SHA256SUMS','IZ2S-Platform-provenance.json'])
+    for (const name of ['IZ2S-Platform-SHA256SUMS','IZ2S-Platform-provenance.json','IZMYSH-legacy-SHA256SUMS'])
       fs.copyFileSync(path.join(root,'packaging',name),path.join(runtime,'packaging',name));
     fs.cpSync(path.join(root,'assets/hosts'),path.join(runtime,'assets/hosts'),{recursive:true});
     selectHost(runtime,profile.id);

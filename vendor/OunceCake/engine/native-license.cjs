@@ -77,6 +77,13 @@ async function nativeOwners(ipc, application, {optional = false, shouldStop = ()
 
 async function prepareNativeInstalledLicense({s, root, domain, service, programId, storage, optional = false, shouldStop = () => false}) {
   if (s.threads.size) throw new Error('Prepare native license before starting the server');
+  let esIpc;
+  let matches;
+  if (optional) {
+    esIpc = licenseIpc(s, await service('es'), shouldStop);
+    matches = await nativeOwners(esIpc, programId, {optional, shouldStop});
+    if (!matches.length) return false;
+  }
   const input = Buffer.alloc(16);
   input[0] = storage;
   idBytes(programId).copy(input, 8);
@@ -86,9 +93,10 @@ async function prepareNativeInstalledLicense({s, root, domain, service, programI
   if (rights.equals(Buffer.alloc(16))) return false;
   const application = rights.subarray(0, 8).toString('hex');
   if (application !== programId) throw new Error('FS606 rights prefix differs from native ProgramId; cannot select its context');
-  const es = await service('es');
-  const esIpc = licenseIpc(s, es, shouldStop);
-  const matches = await nativeOwners(esIpc, programId, {optional, shouldStop});
+  if (!esIpc) {
+    esIpc = licenseIpc(s, await service('es'), shouldStop);
+    matches = await nativeOwners(esIpc, programId, {optional, shouldStop});
+  }
   if (!matches.length) return false;
   const rightsHex = rights.toString('hex');
   let owned = s.nativeInstalledLicenseContext;

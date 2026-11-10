@@ -4,7 +4,7 @@ const path = require('node:path');
 const net = require('node:net');
 const fs = require('node:fs');
 const {spawn: spawnProcess} = require('node:child_process');
-const {lines} = require('./gui-host.cjs');
+const {lines, validLocalFTPURL} = require('./gui-host.cjs');
 
 const applications = Object.freeze({
   'launch-izlauncher': ['izlauncher', 'scripts/gui-izlauncher.cjs'],
@@ -27,7 +27,10 @@ function launchConfiguration(command) {
   const [application, script] = selected;
   if (application === 'ouncecake') {
     if (!net.isIPv4(command.consoleAddress)) throw Error('Enter the Switch’s IPv4 address for OunceCake HTTP/WebDAV.');
-    return {application, script, config: {consoleAddress: command.consoleAddress, port: 8080}};
+    if (command.mode !== undefined && !['webdav','ftp'].includes(command.mode))
+      throw Error('Choose OunceCake WebDAV or FTP.');
+    return {application, script, config: {consoleAddress: command.consoleAddress, port: 8080,
+      ...(command.mode === 'ftp' ? {mode: 'ftp'} : {})}};
   }
   if (application === 'mintbrew') {
     if (command.addonUrls !== undefined && (!Array.isArray(command.addonUrls) || command.addonUrls.length > 32 ||
@@ -287,7 +290,8 @@ async function main(options = {}) {
       if (settled) {protocolFailure('The selected app sent activity after shutdown.'); return;}
       if (ouncecakeMode && event.type === 'running' &&
           (awaitingGame || gameTitles.size === 0 || event.host !== config.consoleAddress || event.port !== config.port ||
-           event.httpURL !== `http://${config.consoleAddress}:8080/`)) {
+           event.httpURL !== `http://${config.consoleAddress}:${config.port}/` ||
+           application === 'ouncecake' && config.mode === 'ftp' && !validLocalFTPURL(event.ftpURL))) {
         protocolFailure('OunceCake did not confirm the selected game-server endpoint.'); return;
       }
       if (event.cleanupBlocked === true) fail('The selected app could not confirm native shutdown.', true);
@@ -305,7 +309,8 @@ async function main(options = {}) {
       if (retrySafeFailure) return;
       safeEmit('homebrew-' + event.type, {path: context.directory, message: event.message,
         ...(['izlauncher','mintbrew','native-hblauncher'].includes(application) ? {cleanupBlocked} : {}),
-        ...(ouncecakeMode ? {host: event.host, port: event.port, httpURL: event.httpURL, cleanupBlocked} : {})});
+        ...(ouncecakeMode ? {host: event.host, port: event.port, httpURL: event.httpURL,
+          ...(validLocalFTPURL(event.ftpURL) ? {ftpURL: event.ftpURL} : {}), cleanupBlocked} : {})});
     };
     lines(owned.stdout, observe, 1024 * 1024); lines(owned.stderr, observe);
     if (configurable) {
@@ -477,9 +482,10 @@ async function main(options = {}) {
         safeEmit('action-rejected', {action:command.action,message:'This homebrew option is unavailable in this build.'}); return;
       }
       if (command.action === 'launch-native-hblauncher' &&
-          !['kurumuz', 'cellenseres'].includes(context.profileId)) {
+          !require('./host-profiles.cjs').profiles.some(profile =>
+            profile.id === context.profileId && profile.supportsNativeHBLauncher)) {
         safeEmit('action-rejected', {action:command.action,
-          message:'Native HBLauncher requires a held Kurumuz or Cellenseres RPC session.'}); return;
+          message:'Native HBLauncher requires a supported held RPC session.'}); return;
       }
       let selection;
       try {selection = launchConfiguration(command);} catch (error) {safeEmit('action-rejected', {message: error.message}); return;}
@@ -498,8 +504,9 @@ async function main(options = {}) {
             if (!availableHomebrew(root,target))
               throw Error('The selected homebrew runtime is unavailable in this build.');
             if (target === 'native-hblauncher' &&
-                !['kurumuz', 'cellenseres'].includes(context.profileId))
-              throw Error('Native HBLauncher apps require a held Kurumuz or Cellenseres RPC session.');
+                !require('./host-profiles.cjs').profiles.some(profile =>
+                  profile.id === context.profileId && profile.supportsNativeHBLauncher))
+              throw Error('Native HBLauncher apps require a supported held RPC session.');
             const staged = prepared;
             const selected = target === 'izlauncher' ? {
               application:target,script:applications['launch-izlauncher'][1],

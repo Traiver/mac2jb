@@ -141,7 +141,7 @@ mac2jb types this command and presses enter twice to accept ok, then waits
 3. click **Jailbreak with ns2jb**. in the setup popup, tick the demo checkbox
    if you use the demo, or leave it off for the full version.
 4. confirm the Switch is ready and connected by usb, then click **Start jailbreak**.
-5. keep SmileBASIC focused and wait for 4/4 verification. the default Cellenseres
+5. keep SmileBASIC focused and wait for 4/4 verification. the default kurumuz
    host holds rpc open and offers MistBrew, SaveKit, and Artemis launcher saves
    or native HBLauncher. launch
    one homebrew at a time while rpc is held.
@@ -172,18 +172,29 @@ version 1.0.0 and reports tests on Switch 2 firmware 20.4.0 and 23.0.1.
 3. click **Jailbreak with CivSwitch** in mac2jb. enter the Switch's IPv4 address,
    confirm the cartridge and chat screen are ready, then start the transfer.
 4. keep the game and mac2jb open while the Mac sends the chat payload over usb.
-   upstream estimates about 15–20 minutes. mac2jb checks the CivSwitch JavaScript
-   loader on tcp port 9026 before reporting it ready.
+   the current Mac timing estimate is about 20–25 minutes. mac2jb checks the
+   CivSwitch JavaScript loader on tcp port 9026.
+5. click **Install boot trigger** if you want persistence. mac2jb backs up
+   Civilization VII's single-player saves before running CivSwitch's installer.
+   the trigger replaces the files in `save:/saves/Single/`; verified originals
+   are kept under
+   `~/Library/Application Support/mac2jb/CivSwitch/Backups`.
+6. after restarting Civilization VII, choose **Load Game** to reopen the loader.
 
 after the loader is verified, click **Show cpypwn demo** to send a JavaScript
 display test. it shows `hellow from cpypwn!` with animated mint-colored shapes.
 the Mac confirms that the loader executed the script; the display still needs
 a console test.
 
+if the CivSwitch loader is already open, enter the Switch IPv4 address and click
+**Connect to open loader**. after it verifies, **Send JavaScript…**
+sends a `.js` file directly to port 9026. **Install boot trigger** runs the
+persistent installer on that same open connection after backing up the game's
+single-player saves. this is separate from Control Center Payload Mode.
+
 the CivSwitch loader does not expose ns2jb's held rpc session. MistBrew,
 SaveKit and the other ns2jb homebrew choices do not run through this path in
-this build. use ns2jb to install an Artemis launcher save. the optional
-CivSwitch persistent-save installer is not run.
+this build. use ns2jb to install an Artemis launcher save.
 
 ### CivSwitch Control Center
 
@@ -198,40 +209,57 @@ available after the current session. this is a CivSwitch-specific export, not
 the general SaveKit save browser.
 
 the input monitor shows controller input received through the CivSwitch loader.
-to send your own JavaScript, choose **Payload Mode** on the Switch first, then
-choose the `.js` file in mac2jb. after the transfer, press A on the Switch to
+to stage JavaScript through Control Center, choose **Payload Mode** on the Switch
+first, then choose **Stage JavaScript…** in mac2jb. after the transfer, press A on the Switch to
 start the payload, or B to return to Control Center without starting it.
 
 ## Artemis launcher saves
 
-install either the Seedsow Lullaby demo or Nora Princess 2 demo and create a
-normal save first. close the selected game, run the ns2jb jailbreak with
-Cellenseres or kurumuz, and wait for held rpc. choose **Install seedsowhax** or
-**Install norahax** in the Artemis launcher row. the buttons use their
-respective bundled mac2jb save packages without downloading them. the packages
-combine the pinned [upstream v1 release](https://github.com/alula/switch-artemis-launcher/releases/tag/v1)
-with mac2jb's cpypwn showcase and HTTP display updates. mac2jb checks each
+install the Seedsow Lullaby, Nora Princess 2, Nora, Princess and Stray Cat HD,
+or Hamidashi Creative demo and create a normal save first. close the selected
+game, run the ns2jb jailbreak with kurumuz, Cellenseres or Astral, and wait for held
+rpc. choose its matching **Install seedsowhax**, **Install nora2hax**,
+**Install norahax**, or **Install hamihax** button. these use bundled save
+packages without downloading them. the Seedsow, Nora 2, and Hamidashi packages
+come from the pinned [upstream v2 release](https://github.com/alula/switch-artemis-launcher/releases/tag/v2).
+the Nora 1 package uses the later
+[upstream source](https://github.com/alula/switch-artemis-launcher) that added
+that demo. v2 commits written files to internal
+storage, supports Hamidashi and accepts HTTP requests up to 256 KB. mac2jb checks each
 bundled archive before installation. **Check for upstream update** separately
 reports the latest upstream release; it does not change the bundled packages.
+
+Seedsowhax also supports the Seedsow Lullaby full game. choose the full-game
+option only after creating a save in the full game; mac2jb verifies that game's
+title and account, then patches its own autosave. the demo package cannot be
+installed to the full game. this path adapts the
+[upstream full-game patch](https://github.com/alula/switch-artemis-launcher/pull/8)
+and needs a console test in mac2jb.
+
+the separate [Seedsow Lua Editor Pro v0.4.0](https://github.com/purple442/seedsow-lua-editor-pro/releases/tag/v0.4.0)
+option installs its pinned demo save, including its existing script slots. it
+does not support the full game.
 
 mac2jb backs up and verifies the selected game's save before writing its
 launcher files. installing may replace demo progress and settings. if more than
 one console account exists, choose the account that owns the demo save. an
-existing launcher with different core files is left untouched. the verified
+existing launcher with unrecognized core files is left untouched; verified v1
+files can be upgraded to v2. the verified
 original backup can be opened from the app after installation. the optional
 custom Seedsow Lua editor ZIP or folder remains under the developer held-rpc
 options.
 
-mac2jb also adds a cpypwn visual demo as `exploitb.lua` when that slot is empty.
-if you already have a B-button script, it is preserved. the upstream launcher
-labels the slot `exploit2.lua`, but its actual filename is `exploitb.lua`.
-loading the modified launcher save starts the cpypwn showcase and HTTP server
-automatically. the only white text is `http listening`, shown beneath cpypwn
-after the server starts. mac2jb installs this through `inject2.lua` and
-`http2.lua`, keeping the original scripts available in recovery mode.
-reinstalling can update an earlier mac2jb launcher without replacing an
-unknown custom B-button script. the automatic HTTP path still needs a console
-test.
+## Gravity Circuit save
+
+mac2jb bundles a [Gravity Circuit save](https://github.com/figurophobia/GravCirc-Switch-rce)
+for game versions 1.0.0 and 1.2.1. launch the game once to create a save, then
+close it. establish held rpc through ns2jb, then choose **Install Gravity Circuit save**. the installer
+uses SaveKit to back up the current save, write the bundled files, and verify
+them. the save replaces the game's startup Lua code and opens a Lua RPC service
+on port `9026` and FTP on ports `5000` and `5001` when Gravity Circuit starts.
+the services are available to other devices on the same local network.
+reinstalling can update an earlier mac2jb launcher while preserving the
+verified original save backup.
 
 after a verified write or skip, mac2jb checks that rpc remains open. you can
 choose a homebrew app, install another launcher save, or use SaveKit to export
@@ -240,7 +268,7 @@ verified backup. the app does not retry a save operation automatically. finish
 the session before closing SmileBASIC, then open the selected demo and load its
 Artemis launcher save.
 
-the modified Artemis launcher starts its HTTP server when the save loads. with the Mac
+the Artemis launcher starts its HTTP server when the save loads. with the Mac
 and Switch on the same network, open **Console & Developer Options → Artemis
 HTTP** in mac2jb, enter the Switch's IPv4 address, and check the connection.
 the developer controls can send Lua to `/eval`, upload a file to a `save:/`
@@ -255,9 +283,27 @@ receiver. mac2jb installs its save through
 ns2jb host. upstream documents JKSV plus official save transfer as its tested
 setup route; this mac2jb rpc installation path still needs console testing.
 
+## Balatro save
+
+the bundled [Balatro RCE v1.1.0](https://github.com/Luminger/balatro-switch-rce/releases/tag/v1.1.0)
+save is for the physical Switch 1 Balatro cartridge running on Switch 2 in
+compatibility mode. the native Switch 2 edition is unsupported. launch Balatro
+once to create a save, then close the game.
+
+after ns2jb holds rpc, choose **Install Balatro RCE** under **Save installers**.
+select the account that owns the save if
+prompted. mac2jb verifies the bundled archive, backs up the current save,
+writes the `.lovegame/` files, and verifies them after commit. the original
+save backup is kept, and the other held-rpc options become available again
+after a successful write.
+
+finish the mac2jb session, close SmileBASIC without restarting the Switch,
+then open Balatro. the installed save replaces the game screen with a networked
+Lua REPL on port 9026 and FTP on ports 5000/5001.
+
 ## save data and research tools
 
-after a regular jailbreak with Cellenseres or kurumuz, **Start SaveKit** opens
+after a regular jailbreak with kurumuz, Cellenseres or Astral, **Start SaveKit** opens
 the full set of save actions in the held session: account, title and archive
 lists; inspection and verified backups; and the experimental write, restore,
 delete and verify controls. the bundled research source catalog is available
@@ -294,21 +340,6 @@ large files are verified in chunks after writing. the separate **SaveKit
 research sources** catalog keeps the previous research utilities and adds the current
 upstream save and Artemis tools. it provides source paths and syntax checks;
 utilities with hardware or local path requirements are run manually after review.
-
-### elden ring save conversion
-
-**Elden Ring save conversion** is available in developer options on the Mac.
-choose a PC `.sl2` save and a complete Elden Ring Switch 2 SaveKit backup folder,
-including its `manifest.json`. select the PC character and the Switch character
-slot to replace, then click **Convert save**. mac2jb creates a new folder with
-the converted character and profile files; it leaves both source saves intact.
-
-to install the converted character, close Elden Ring on the Switch and open
-SaveKit in a verified held rpc session. select Elden Ring and its account,
-choose the converted folder with **Choose local save folder…**, then click
-**Back up and write save**. SaveKit backs up the current Switch save and
-verifies the written files. keep the original complete SaveKit export for
-recovery.
 
 the experimental **SD card files** tool uses a verified held FS rpc session
 and [Super File Bros.](https://github.com/byizmysh/super-file-bros) to expose
@@ -522,6 +553,10 @@ Allocation failures report requested memory and index size. A retry is offered
 only after server cleanup was verified; an invalid nonzero address is retained
 for restart rather than passed to the native free function.
 
+The direct OunceCake choice in mac2jb also offers **FTP on this Mac**. It uses
+loopback and the same read-only export. For transfers from another device,
+use the Switch WebDAV address or the Mac TAR address shown in MistBrew.
+
 the earlier GPU MintNES and MintFTP prototypes remain in the source tree.
 neither is included in the MistBrew app list. a separate native MintNES test
 app is included with HBLauncher.
@@ -530,9 +565,10 @@ the IZ2S file browser and FTP service within the current MistBrew session,
 then returns to the app list. its console display and file transfers still
 need a Switch test.
 IZlauncher is available as an experimental choice only under **Hold RPC after
-success** in developer options. its current Mac adaptations include File Exchange,
+success** in developer options. the bundled IZ2S Platform source is pinned to
+0.21.0 plus upstream fixes, while the separate IZMYSH host retains its existing
+`NS2I` bootstrap and protocol. Mac adaptations include File Exchange,
 BlitBun and VacooTube; video and capture pipelines still need console testing.
-the latest upstream IZ2S Platform and IZDOOM releases match the pinned source.
 HBLauncher is a separate native ABI 3 choice after a fresh Cellenseres or
 kurumuz held rpc session. this release includes its Hello CPU and GPU Triangle sample apps,
 plus MintNES. MintNES runs its NES CPU and graphics emulation on the Switch CPU
@@ -562,6 +598,24 @@ ports need their own built packages, the HBLauncher Linux personality runtime,
 user-supplied GameCube game data and a local file server. neither game is
 bundled or verified in this Mac release.
 
+## modloader
+
+with a microSD card inserted and kurumuz or Cellenseres holding a verified 4/4 RPC session,
+choose **Modloader** and select a folder on the Mac containing `contents/`
+and, optionally, `exefs_patches/`. put RomFS or ExeFS files under
+`contents/<TITLE_ID>/romfs/` or `contents/<TITLE_ID>/exefs/`, where `TITLE_ID`
+is the game's 16-digit title ID. a folder copied from an Atmosphere mod layout
+works if those paths are preserved. mac2jb checks the layout, then installs
+the selected mods through the held session. game files and mods are not bundled.
+
+wait for **READY**, then choose **Finish session** and let the host close.
+close SmileBASIC without restarting the Switch, then open the modded game.
+the installed overlay lasts until the console reboots. modloader uses this
+session as its final action; choose it before another homebrew app. it supports
+RomFS and ExeFS replacements and IPS patches. runtime cheats need a separate
+runtime. see [ns2jb-modloader](https://github.com/SebaaMG/ns2jb-modloader)
+for the complete mod layout and compatibility notes.
+
 ## finish or retry
 
 close any FTP or WebDAV connection, choose finish session and wait for cleanup.
@@ -571,14 +625,14 @@ saving the bootstrap does not preserve a live jailbreak connection.
 
 ## developer options
 
-- choose pepsipu, kurumuz, Cellenseres, BermTheSequel or IZMYSH as the host. use
+- choose pepsipu, kurumuz, Cellenseres, Astral, BermTheSequel or IZMYSH as the host. use
   its matching saved bootstrap, or type and save one if needed. pepsipu uses the original
   nine-argument pairing command and does not support held rpc; kurumuz,
-  Cellenseres and BermTheSequel support held rpc and the demo. IZMYSH uses its NS2I bootstrap,
+  Cellenseres, Astral and BermTheSequel support held rpc and the demo. IZMYSH uses its NS2I bootstrap,
   port 39395 and a nine-argument pairing command; this GUI profile verifies the
   native session and closes it without exposing held rpc or homebrew controls.
-  Cellenseres is the default and supports SaveKit, Artemis save installation
-  and native HBLauncher alongside kurumuz. kurumuz supports the microSD Express
+  kurumuz is the default and supports SaveKit, Artemis save installation
+  and native HBLauncher alongside Cellenseres and Astral. kurumuz supports the microSD Express
   update identified by `(B)` beside item 3 under system settings →
   support/health & safety.
 - in additional tools, run host only starts the selected host and waits for
@@ -665,13 +719,18 @@ use the console and session logs to investigate failures. for support, join the 
 - [duszmox](https://github.com/duszmox) — [PR #11](https://github.com/cpypwn/mac2jb/pull/11), automatic USB controller discovery through the IORegistry.
 - [misshexa66](https://github.com/misshexa66) — the original [OunceCake](https://github.com/misshexa66/OunceCake), game-content export.
 - [alula](https://github.com/alula) — [switch-artemis-launcher](https://github.com/alula/switch-artemis-launcher), the Seedsow and Nora save launchers and HTTP interface.
+- [purple442](https://github.com/purple442) — [Seedsow Lua Editor Pro](https://github.com/purple442/seedsow-lua-editor-pro), the bundled v0.4.0 demo save.
+- [soniciso1](https://github.com/soniciso1) — [Seedsow full-game patch](https://github.com/alula/switch-artemis-launcher/pull/8), adapted for a verified SaveKit backup.
+- [figurophobia](https://github.com/figurophobia) — [Gravity Circuit Switch RCE](https://github.com/figurophobia/GravCirc-Switch-rce), the bundled Gravity Circuit save and Lua/FTP launcher.
+- [Luminger](https://github.com/Luminger) — [Balatro Switch RCE](https://github.com/Luminger/balatro-switch-rce), the Balatro save and native Lua/FTP research used by Gravity Circuit Switch RCE.
 - [smarkyie](https://github.com/smarkyie) — [NSP-Box](https://github.com/smarkyie/NSP-Box), the extracted-snapshot packager adapted for Mac.
 - [a55uka](https://github.com/a55uka) — [nup](https://github.com/a55uka/nup), the NUP format and reference tool fetched on request.
-- [Cellenseres](https://github.com/Cellenseres) — the default [ns2jb host](https://github.com/Cellenseres/ns2jb) with retained rpc and native IPC handling, and the updated [OunceCake fork](https://github.com/Cellenseres/OunceCake) for read-only HTTP and WebDAV game browsing.
-- [ravensclawx](https://github.com/ravensclawx) — [HBLauncher](https://github.com/ravensclawx/HBLauncher), the SmileBASIC gpu app launcher and sdk, and [ftpd-sb](https://github.com/ravensclawx/ftpd-sb), bundled with MintBrew and the base for the MintFTP prototype.
+- [Cellenseres](https://github.com/Cellenseres) — the [ns2jb host](https://github.com/Cellenseres/ns2jb) with retained rpc and native IPC handling, and the updated [OunceCake fork](https://github.com/Cellenseres/OunceCake) for read-only HTTP and WebDAV game browsing.
+- [SebaaMG](https://github.com/SebaaMG) — [ns2jb-modloader](https://github.com/SebaaMG/ns2jb-modloader), the RomFS and ExeFS loader integrated for held RPC sessions.
+- [ravensclawx](https://github.com/ravensclawx) — [HBLauncher](https://github.com/ravensclawx/HBLauncher), the SmileBASIC gpu app launcher and sdk, and [ftpd-sb](https://github.com/ravensclawx/ftpd-sb), bundled with MistBrew and the base for the MintFTP prototype.
 - [niftynova](https://github.com/NiftyNova) — [gpubrewlauncher](https://github.com/NiftyNova/GPUBrewLauncher), the updated gpu app launcher.
-- [byizmysh](https://github.com/byizmysh) — [IZ2S Platform](https://github.com/byizmysh/IZ2S-Platform), [BlitBun](https://github.com/byizmysh/BlitBun), [VacooTube](https://github.com/byizmysh/VacooTube), [IZDOOM](https://github.com/byizmysh/IZDOOM) and [Super File Bros.](https://github.com/byizmysh/super-file-bros). mac2jb includes DOOM in MintBrew, retains the IZlauncher Mac adaptations in source and uses Super File Bros. for the experimental read-only SD browser.
-- [Stremio](https://github.com/Stremio/stremio-web) — the official app icon used in MintBrew.
+- [byizmysh](https://github.com/byizmysh) — [IZ2S Platform](https://github.com/byizmysh/IZ2S-Platform), [BlitBun](https://github.com/byizmysh/BlitBun), [VacooTube](https://github.com/byizmysh/VacooTube), [IZDOOM](https://github.com/byizmysh/IZDOOM) and [Super File Bros.](https://github.com/byizmysh/super-file-bros). mac2jb includes DOOM in MistBrew, retains the IZlauncher Mac adaptations in source and uses Super File Bros. for the experimental read-only SD browser.
+- [Stremio](https://github.com/Stremio/stremio-web) — the official app icon used in MistBrew.
 - [Jmesmykil](https://github.com/Jmesmykil) — [Switch 2 captive portal research scripts](https://github.com/Jmesmykil/switch2-captive-portal-research), included with permission for browser diagnostics.
 - [id Software](https://github.com/id-Software) — the original [Doom engine source](https://github.com/id-Software/DOOM) used by doomgeneric.
 - [ozkl](https://github.com/ozkl) — [doomgeneric](https://github.com/ozkl/doomgeneric), the Doom-compatible engine in the BlitBun Mac adaptation source.

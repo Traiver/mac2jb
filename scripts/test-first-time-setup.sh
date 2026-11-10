@@ -10,7 +10,7 @@ xcrun swiftc -parse-as-library -swift-version 5 -target arm64-apple-macos14.0 \
   "$ROOT/gui/SessionRunMode.swift" "$ROOT/gui/SmileBASICEdition.swift" "$ROOT/gui/HostProfile.swift" \
   "$ROOT/gui/PostBootstrapCommand.swift" \
   "$ROOT/gui/WorkflowProgress.swift" "$ROOT/gui/BootstrapLineProgress.swift" \
-  "$ROOT/gui/PostRunSessionState.swift" "$ROOT/gui/OunceCakeSession.swift" "$ROOT/gui/StremioAccount.swift" \
-  "$ROOT/gui/BuildIdentity.swift" "$ROOT/gui/Runtime.swift" "$ROOT/scripts/test-first-time-setup.swift" \
+  "$ROOT/gui/PostRunSessionState.swift" "$ROOT/gui/OunceCakeSession.swift" "$ROOT/gui/OunceCakeImportView.swift" "$ROOT/gui/SaveImportQuitGuard.swift" "$ROOT/gui/StremioAccount.swift" \
+  "$ROOT/gui/BuildIdentity.swift" "$ROOT/gui/UpdatePackage.swift" "$ROOT/gui/Runtime.swift" "$ROOT/scripts/test-first-time-setup.swift" \
   -o "$TASK_SETUP_TEST/tests"
 "$TASK_SETUP_TEST/tests" "$ROOT/gui/ContentView.swift"

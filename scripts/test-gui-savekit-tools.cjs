@@ -353,7 +353,7 @@ test('a full archive listing keeps each file associated with its archive', () =>
     /no complete archive listing/);
 });
 
-test('local write staging copies flat files and excludes Finder metadata', async t => {
+test('local write staging preserves nested saves and excludes Finder metadata', async t => {
   const folder = await fs.mkdtemp(path.join(os.tmpdir(), 'mac2jb-savekit-source-'));
   const stage = await fs.mkdtemp(path.join(os.tmpdir(), 'mac2jb-savekit-stage-'));
   t.after(async () => {
@@ -369,6 +369,26 @@ test('local write staging copies flat files and excludes Finder metadata', async
   await fs.writeFile(path.join(folder, 'game save.dat'), 'changed');
   assert.equal(await fs.readFile(files[0].path, 'utf8'), 'original');
   await fs.rm(files[0].path);
-  await fs.mkdir(path.join(folder, 'nested'));
-  await assert.rejects(stageFiles(folder, stage), /unsupported file/);
+  await fs.mkdir(path.join(folder, '.lovegame/bl'), {recursive: true});
+  await fs.writeFile(path.join(folder, '.lovegame/bl/app.lua'), 'return true');
+  await fs.writeFile(path.join(folder, '.lovegame/.DS_Store'), 'metadata');
+  await fs.mkdir(path.join(folder, '.Gravity Circuit/gc'), {recursive: true});
+  await fs.writeFile(path.join(folder, '.Gravity Circuit/main.lua'), 'return "gravity"');
+  await fs.writeFile(path.join(folder, '.Gravity Circuit/gc/offsets.lua'), 'return {}');
+  await fs.writeFile(path.join(folder, '.Gravity Circuit/._main.lua'), 'metadata');
+  const nestedStage = await fs.mkdtemp(path.join(os.tmpdir(), 'mac2jb-savekit-stage-'));
+  t.after(() => fs.rm(nestedStage, {recursive: true, force: true}));
+  const nested = await stageFiles(folder, nestedStage);
+  assert.deepEqual(new Set(nested.map(file => file.name)), new Set([
+    '.Gravity Circuit/gc/offsets.lua', '.Gravity Circuit/main.lua',
+    '.lovegame/bl/app.lua', 'game save.dat'
+  ]));
+  assert.equal(await fs.readFile(path.join(nestedStage, '.lovegame/bl/app.lua'), 'utf8'),
+    'return true');
+  assert.equal(await fs.readFile(path.join(nestedStage, '.Gravity Circuit/main.lua'), 'utf8'),
+    'return "gravity"');
+  await fs.symlink(path.join(folder, 'game save.dat'), path.join(folder, '.lovegame/bl/link.lua'));
+  const rejectStage = await fs.mkdtemp(path.join(os.tmpdir(), 'mac2jb-savekit-stage-'));
+  t.after(() => fs.rm(rejectStage, {recursive: true, force: true}));
+  await assert.rejects(stageFiles(folder, rejectStage), /symbolic link/);
 });

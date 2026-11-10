@@ -378,14 +378,15 @@ for(const [folder,kind,claim,helper,argument] of [
 test('attached custom native app rejects a non-Kurumuz host before claiming',async t=>{
   const session=fixture(t,{profileId:'bermthesequel'});await session.attach();
   session.send({action:'launch-custom-homebrew',customHomebrewPath:'/Users/test/ABI3App'});
-  assert.match((await session.wait('action-rejected')).message,/Kurumuz or Cellenseres/);
+  assert.match((await session.wait('action-rejected')).message,/supported held RPC/);
   assert.equal(session.calls.some(row=>row[0]==='claim'),false);
   assert.equal(session.calls.filter(row=>row[0]==='preflight-cleanup').length,1);
   session.send({action:'launch-mintbrew'});await session.wait('homebrew-running');
   session.send({action:'finish'});assert.equal(await session.done,0);
 });
-test('attached custom native app accepts a Cellenseres held session',async t=>{
-  const session=fixture(t,{profileId:'cellenseres'});await session.attach();
+for (const hostId of ['cellenseres', 'astral'])
+test('attached custom native app accepts a '+hostId+' held session',async t=>{
+  const session=fixture(t,{profileId:hostId});await session.attach();
   session.send({action:'launch-custom-homebrew',customHomebrewPath:'/Users/test/ABI3App'});
   assert.equal((await session.wait('homebrew-accepted')).customHomebrewKind,'native-app');
   await session.wait('homebrew-running');
@@ -544,7 +545,7 @@ test('native SD ROM path is checked before claiming the held RPC session', async
 test('direct native HBLauncher rejects unsupported host without consuming held RPC', async t => {
   const session = fixture(t, {profileId: 'BermTheSequel'}); await session.attach();
   session.send({action: 'launch-native-hblauncher'});
-  assert.match((await session.wait('action-rejected')).message, /Kurumuz or Cellenseres/);
+  assert.match((await session.wait('action-rejected')).message, /supported held RPC/);
   assert.equal(session.calls.some(row => row[0] === 'claim'), false);
   session.send({action: 'launch-mintbrew'}); await session.wait('homebrew-running');
   session.send({action: 'finish'}); assert.equal(await session.done, 0);
@@ -644,16 +645,20 @@ test('a zero helper exit without terminal cleanup proof is not a successful app 
   session.send({action: 'launch-mintbrew'}); await session.wait('action-rejected');
   session.send({action: 'finish'}); assert.equal(await session.done, 1);
 });
-test('OunceCake catalog selection and WebDAV endpoint belong to the attached session', async t => {
-  const session = fixture(t); await session.attach(); session.send({action: 'launch-ouncecake', consoleAddress: '192.0.2.9'});
+for (const mode of ['webdav','ftp']) test('OunceCake '+mode+' endpoint belongs to the attached session', async t => {
+  const session = fixture(t); await session.attach(); session.send({action: 'launch-ouncecake', consoleAddress: '192.0.2.9', mode});
   await session.wait('homebrew-started'); const child = session.children[0];
   child.event({type: 'catalog', games: [game]}); assert.deepEqual((await session.wait('homebrew-catalog')).games, [game]);
   session.send({action: 'select-ouncecake-game', titleId: '0000000000000000'}); await session.wait('action-rejected');
   session.send({action: 'select-ouncecake-game', titleId: game.titleId});
   await until(() => child.input.split('\n').filter(Boolean).length === 2);
   assert.deepEqual(JSON.parse(child.input.trim().split('\n')[1]), {action: 'select-game', titleId: game.titleId});
-  child.event({type: 'running', host: '192.0.2.9', port: 8080, httpURL: 'http://192.0.2.9:8080/'});
-  assert.equal((await session.wait('homebrew-running')).httpURL, 'http://192.0.2.9:8080/');
+  assert.equal(JSON.parse(child.input.trim().split('\n')[0]).mode, mode === 'ftp' ? mode : undefined);
+  const ftpURL = mode === 'ftp' ? 'ftp://127.0.0.1:34567/' : undefined;
+  child.event({type: 'running', host: '192.0.2.9', port: 8080, httpURL: 'http://192.0.2.9:8080/', ftpURL});
+  const running = await session.wait('homebrew-running');
+  assert.equal(running.httpURL, 'http://192.0.2.9:8080/');
+  assert.equal(running.ftpURL, ftpURL);
   session.send({action: 'select-ouncecake-game', titleId: game.titleId}); await session.wait('action-rejected', 2);
   session.send({action: 'finish'}); assert.equal(await session.done, 0);
 });

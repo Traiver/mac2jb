@@ -120,6 +120,11 @@
       "date": "2026-11-08",
       "file": "engine/program.cjs, engine/mounts.cjs",
       "description": "Port the indexed program update fix from MissHexa 58ff39a. Match the original program index and temporarily select its Base locations; verify resolver restoration under the fork's existing cleanup rules."
+    },
+    {
+      "date": "2026-11-10",
+      "file": "engine/native-license.cjs, engine/mounts.cjs",
+      "description": "Port physical GameCard and optional legacy license handling from cpypwn 5ce51c2 while retaining cooperative cancellation, typed errors and the current HTTP runtime."
     }
   ],
   "httpBase": {
