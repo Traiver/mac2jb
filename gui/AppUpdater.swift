@@ -77,7 +77,7 @@ private final class UpdateDownloadGuard: NSObject, URLSessionDownloadDelegate {
     var isWorking: Bool { [.checking, .downloading, .installing].contains(state) }
     var currentVersion: String { installedVersion ?? Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.0.0" }
     var currentBuild: Int {
-        installedBuild ?? (try? UpdateBuild.parse(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "")) ?? 0
+        installedBuild ?? AppBuildIdentity.buildNumber ?? 0
     }
     private var requiredMessage: String {
         "An update is required before starting a new session. Finish any current session first, then update mac2jb." +
@@ -138,7 +138,7 @@ private final class UpdateDownloadGuard: NSObject, URLSessionDownloadDelegate {
                     message = "mac2jb \(update.displayVersion) is available."
                 } else {
                     candidate = nil; state = manual ? .current : .idle
-                    message = "You’re up to date — mac2jb \(currentVersion)."
+                    message = "You’re up to date — mac2jb \(AppBuildIdentity.releaseLabel(currentVersion, build: currentBuild))."
                 }
             } catch {
                 if manual || requiredUpdate {
@@ -163,7 +163,7 @@ private final class UpdateDownloadGuard: NSObject, URLSessionDownloadDelegate {
             do {
                 let root = try Self.makeStagingDirectory(parent: stagingParent)
                 diagnosticURL = root.appendingPathComponent("update.log")
-                log("Downloading stable release \(candidate.version.text) from Traiver/mac2jb.")
+                log("Downloading stable release \(candidate.displayVersion) from Traiver/mac2jb.")
                 let sums = try await fetchFile(candidate.checksums.browser_download_url, limit: 16384,
                                                 expected: candidate.checksums.size)
                 defer { try? FileManager.default.removeItem(at: sums) }
@@ -204,7 +204,7 @@ private final class UpdateDownloadGuard: NSObject, URLSessionDownloadDelegate {
                     originalSHA256: try UpdatePackage.sha256(destination.appendingPathComponent("Contents/MacOS/mac2jb")),
                     updateSHA256: try UpdatePackage.sha256(app.appendingPathComponent("Contents/MacOS/mac2jb")), parentPID: getpid())
                 state = .ready; progress = 1
-                message = "mac2jb \(version) is verified and ready to install."
+                message = "mac2jb \(AppBuildIdentity.releaseLabel(version, build: build)) is verified and ready to install."
                 log("Download, SHA-256, archive, bundle version, architecture, and code integrity checks passed.")
             } catch {
                 state = .failed; message = (requiredUpdate ? requiredMessage + " " : "") + "Update failed: \(error.localizedDescription)"

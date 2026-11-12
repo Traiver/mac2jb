@@ -31,6 +31,7 @@ function fixture(t,options={}){
       'else process.exit(0);',
       '}else{',
       "if(item.role==='graphics'){fs.writeFileSync(path.join(directory,'launcher-auto-loop.json'),JSON.stringify({session,threadRunning:true}));console.log(options.frameMarker||frameReady);}",
+      "if(item.role==='graphics'&&options.importRequest){const nonce='a'.repeat(48);console.log('MintBrew: MAC2JB_OUNCECAKE_IMPORT '+JSON.stringify({nonce,requestFolder:path.join(directory,'save-imports','request-'+nonce)}));}",
       "if(item.role==='audio')fs.writeFileSync(path.join(directory,'game-audio.json'),JSON.stringify({session}));",
       "if(item.role==='music')fs.writeFileSync(path.join(directory,'music.json'),JSON.stringify({session,uploadVerified:true,ready:true,playing:true}));",
       "process.on('SIGTERM',()=>{log({event:'stop',role:item.role});setTimeout(()=>{",
@@ -152,24 +153,19 @@ test('custom homebrew uses GPUBrewLauncher with an isolated selected-app library
     return app;
   }}),/changed during staging/);
 });
-for(const [marker,kind,option] of [
-  ['module.json','iz-module','stageIZModule'],
-  ['manifest.json','native-app','preflightNativeApp']
-])test('custom picker recognizes '+kind+' before GPU app staging',async t=>{
+test('custom picker recognizes native apps before GPU app staging',async t=>{
   const root=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'mac2jb-custom-kind-')));
   t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
   const folder=path.join(root,'selected');fs.mkdirSync(folder);
-  fs.writeFileSync(path.join(folder,marker),'{}');
+  fs.writeFileSync(path.join(folder,'manifest.json'),'{}');
   let called=false;
-  const options={[option]:async(selectedRoot,selectedFolder)=>{
+  const options={preflightNativeApp:async(selectedRoot,selectedFolder)=>{
     assert.equal(selectedRoot,root);assert.equal(selectedFolder,folder);called=true;
-    return kind==='iz-module' ? {id:'my-module',name:'My module',version:'1.0.0',
-      sha256:'a'.repeat(64),cleanup:async()=>{}} : {kind:'native-app',
+    return {kind:'native-app',
       app:{id:'my-native',name:'My native app'},packageFolder:path.join(root,'staged'),cleanup:async()=>{}};
   }};
   const prepared=await preflightCustomHomebrew(root,folder,options);
-  assert.equal(called,true);assert.equal(prepared.kind,kind);
-  if(kind==='iz-module')assert.equal(prepared.moduleId,'my-module');
+  assert.equal(called,true);assert.equal(prepared.kind,'native-app');
 });
 test('custom homebrew helper runs only the selected package through the held RPC',async t=>{
   const f=fixture(t,{application:'custom-homebrew'}),source=path.join(f.root,'my-gpu-app');
@@ -385,7 +381,7 @@ test('foreign runs, wrong native identity and public connection files cannot att
   fs.writeFileSync(connection,JSON.stringify(original));fs.chmodSync(connection,0o644);
   await assert.rejects(validateRun(f.root,f.directory,f.api.verifySession),/private owned/);
 });
-for(const hostId of ['kurumuz','cellenseres'])
+for(const hostId of ['kurumuz','cellenseres','astral'])
 test('SaveKit-patched '+hostId+' run is trusted only with its pinned source and digest',async t=>{
   const repository=path.resolve(__dirname,'..');
   const root=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'mac2jb-savekit-homebrew-')));
@@ -419,4 +415,11 @@ test('SaveKit-patched '+hostId+' run is trusted only with its pinned source and 
   fs.copyFileSync(result,path.join(forgedRun,'result.json'));
   fs.copyFileSync(path.join(directory,'connection.json'),path.join(forgedRun,'connection.json'));
   await assert.rejects(validateRun(root,forgedRun,verified),/patched host source contains unexpected files/);
+});
+
+test('MintBrew forwards OunceCake import requests as structured events from its graphics owner',async t=>{
+ const f=fixture(t,{application:'mintbrew',importRequest:true});await main([f.directory],f.api);
+ const event=f.events.find(e=>e.type==='ouncecake-import-request');assert.ok(event);assert.equal(event.nonce,'a'.repeat(48));
+ assert.equal(event.requestFolder,path.join(event.path,'save-imports','request-'+event.nonce));
+ assert.ok(!f.events.some(e=>e.type==='progress'&&e.message.includes('MAC2JB_OUNCECAKE_IMPORT')));
 });

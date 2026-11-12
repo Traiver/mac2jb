@@ -15,9 +15,10 @@ static void check(bool ok,const char* message){if(!ok){std::fprintf(stderr,"FAIL
 int main(){
  float delay=0;int held=0;
  check(ounceNavigation(HB_DOWN,HB_DOWN,0,delay,held)==1,"tap moves immediately");
- for(int n=0;n<12;n++)check(ounceNavigation(0,HB_DOWN,0,delay,held)==0,"initial repeat delay prevents double taps");
+ for(int n=0;n<11;n++)check(ounceNavigation(0,HB_DOWN,0,delay,held)==0,"initial repeat delay prevents double taps");
+ check(ounceNavigation(0,HB_DOWN,0,delay,held)==1,"held D-pad starts repeating after 12 frames");
  int repeated=0;for(int n=0;n<60;n++)repeated+=ounceNavigation(0,HB_DOWN,0,delay,held);
- check(repeated>=9&&repeated<=13,"held D-pad continues scrolling at a controlled repeat rate");
+ check(repeated==20,"held D-pad scrolls once every three frames");
  check(ounceNavigation(0,0,0,delay,held)==0&&held==0&&delay==0,"release immediately clears repeat state");
  check(ounceNavigation(HB_UP,HB_UP,0,delay,held)==-1,"opposite press moves immediately");
  check(ounceNavigation(0,HB_DOWN,0,delay,held)==1,"direction change resets initial delay");
@@ -44,7 +45,7 @@ int main(){
    check(ounceThumbOffset(count,99999,height)==ounceThumbOffset(count,maximum,height),"scroll position is clamped");
   }
  }
- uint selection=999,scroll=992;held=1;delay=.075;
+ uint selection=999,scroll=992;held=1;delay=3;
  ounceResetSelection(4,1,selection,scroll,delay,held);
  check(selection==1&&scroll==0&&held==0&&delay==0,"opening a folder resets stale selection and input repeat");
  ounceResetSelection(30,25,selection,scroll,delay,held);

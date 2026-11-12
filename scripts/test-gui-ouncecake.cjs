@@ -5,6 +5,8 @@ const {spawnSync}=require('node:child_process');
 const {main,verifySnapshot,validateConfiguration,catalogEntries,validateAttachment}=require('./gui-ouncecake.cjs');
 const {deployServer}=require('../vendor/OunceCake/engine/server.cjs');
 const {withProgramIndexMap}=require('../vendor/OunceCake/engine/fs-context.cjs');
+const {buildIndex}=require('../vendor/OunceCake/engine/mounts.cjs');
+const {prepareInstalledLicense}=require('../vendor/OunceCake/engine/program.cjs');
 const root=path.resolve(__dirname,'..'),title='0100000000001234';
 const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const deferred=()=>{let resolve;const promise=new Promise(done=>{resolve=done;});return {promise,resolve};};
@@ -24,11 +26,58 @@ test('changed bundled code is refused before loading any console interface',asyn
 });
 test('configuration and catalog are explicit, bounded and omit arbitrary fields',()=>{
  assert.deepEqual(validateConfiguration({consoleAddress:'192.0.2.20',port:8080}),{consoleAddress:'192.0.2.20',port:8080});
- for(const value of [{port:8080},{consoleAddress:'host.local',port:8080},{consoleAddress:'192.0.2.1',port:21},null,[]])assert.throws(()=>validateConfiguration(value));
+ assert.deepEqual(validateConfiguration({consoleAddress:'192.0.2.20',port:8080,mode:'ftp'}),
+  {consoleAddress:'192.0.2.20',port:8080,mode:'ftp'});
+ for(const value of [{port:8080},{consoleAddress:'host.local',port:8080},
+  {consoleAddress:'192.0.2.1',port:21},{consoleAddress:'192.0.2.1',port:8080,mode:'other'},null,[]])
+  assert.throws(()=>validateConfiguration(value));
  const catalog=catalogEntries([{title,name:'💛'.repeat(100)+'\nSECRET',storages:[4,4,2],token:'secret'}]);
  assert.ok(Buffer.byteLength(catalog[0].name)<=160);assert.deepEqual(catalog[0].storages,[4,2]);assert.equal(catalog[0].token,undefined);
  assert.throws(()=>catalogEntries([]));assert.throws(()=>catalogEntries(Array(1001).fill({title,name:'Title',storages:[4]})));
  assert.throws(()=>catalogEntries([{title,name:'Title',storages:[3]}]));
+});
+test('native game card with zero FS606 RightsId skips ES account ELicense lookup',async()=>{
+ const {prepareNativeInstalledLicense}=require('../vendor/OunceCake/engine/native-license.cjs');
+ let esCalled=false;
+ const result=await prepareNativeInstalledLicense({
+  s:{threads:new Set(),async ipc(label,handle,command){assert.equal(command,606);return {result:0,data:Buffer.alloc(16)};}},
+  root:1,domain:{},service:async()=>{esCalled=true;throw Error('ES should not be queried when FS606 RightsId is zero');},
+  programId:'0400341027e14000',storage:2,optional:false
+ });
+ assert.equal(result,false);
+ assert.equal(esCalled,false);
+});
+test('optional native license without an ES owner returns for legacy fallback before FS606',async()=>{
+ const {prepareNativeInstalledLicense}=require('../vendor/OunceCake/engine/native-license.cjs');
+ const calls=[];
+ const result=await prepareNativeInstalledLicense({
+  s:{threads:new Set(),bytes:0x80000,base:0,async write(){},async readOwned(address,size){return Buffer.alloc(size);},
+   async ipc(label,handle,command){calls.push(command);if(command===606)throw Error('FS606 unavailable');
+    assert.ok(command===1004||command===1005);return {result:0,data:Buffer.alloc(4)};}},
+  root:1,domain:{},service:async name=>{assert.equal(name,'es');return 2;},
+  programId:'0100000000001234',storage:4,optional:true
+ });
+ assert.equal(result,false);
+ assert.deepEqual(calls,[1004,1005,1004]);
+});
+test('game-card program path checks FS606 before ES and installed content still checks rights',async()=>{
+ const calls=[];
+ const programId='0400f5802371e000',identity=Buffer.alloc(8);
+ identity.writeBigUInt64LE(BigInt('0x'+programId));
+ let rights=Buffer.alloc(16);
+ const attachment={s:{base:0x10000,threads:new Set(),async write(){calls.push('write');},
+  async ipc(label,handle,command,input){calls.push('FS606');assert.equal(command,606);assert.equal(input[0],storage);return {result:0,data:rights};}},
+  root:7,domain:{async send(){calls.push('identity');return {result:0,data:identity};}},
+  service:async()=>{calls.push('service');throw Error('ES requested');}};
+ const source={storage:2,contentPath:'@GcS00000001://game.nca',attributes:1};
+ let storage=2;
+ assert.equal(await prepareInstalledLicense({...attachment,title:programId,source}),false);
+ assert.deepEqual(calls,['write','identity','FS606']);
+ calls.length=0;storage=4;rights=Buffer.alloc(16,1);
+ Buffer.from(programId,'hex').copy(rights);
+ await assert.rejects(prepareInstalledLicense({...attachment,title:programId,
+  source:{...source,storage,contentPath:'@Ncm://game.nca'}}),/ES requested/);
+ assert.deepEqual(calls,['write','identity','FS606','service']);
 });
 async function proofFixture(t){
  const directory=await folder(t),session='owned-session',reportFile=path.join(directory,'report.json'),engine=path.join(directory,'switch2');
@@ -61,13 +110,16 @@ async function helperFixture(t,options={}){
  const modules={session:{async attachGame(){calls.push('attach');if(options.attachFailure)throw Error('attachment ownership uncertain');return attachment;}},
   content:{async discoverGames(){calls.push('catalog');return [{title,name:'Fixture Game',storages:[4]}];}},
   mounts:{async prepareGame(args){calls.push('prepare:'+args.title);if(options.prepareFailure)throw Error('mount failed');return {index:Buffer.alloc(64),sources:[{handle:7}]};}},
-  server:{async deployServer(args){calls.push('deploy:'+args.port);return {async close(){calls.push('ftp-close');if(options.stopFailure)throw Object.assign(Error('thread still active'),{cleanupBlocked:true});return {nativeStopped:true,joined:true,mappingsCleared:true};}};}}};
+  server:{async deployServer(args){calls.push('deploy:'+args.port);return {async close(){calls.push('server-close');if(options.stopFailure)throw Object.assign(Error('thread still active'),{cleanupBlocked:true});return {nativeStopped:true,joined:true,mappingsCleared:true};}};}}};
  if(options.exportsEngine)modules.exports=options.exportsEngine;
  const promise=main([held],{root:directory,input,modules,isLive:()=>live,waitBlocked:()=>blockedGate.promise,
-  verifySnapshot:async()=>({vendor:'unused',image:Buffer.alloc(16)}),validateRun:async()=>({directory:held,proof:{session:'held-session'}}),validateAttachment:async()=>{},
+  verifySnapshot:async()=>({vendor:path.join(root,'vendor/OunceCake'),image:Buffer.alloc(16)}),validateRun:async()=>({directory:held,proof:{session:'held-session'}}),validateAttachment:async()=>{},
+  createFtpBridge:async({sourceAddress,sourcePort})=>{calls.push('ftp-start:'+sourceAddress+':'+sourcePort);
+   return {address:'127.0.0.1',port:34678,async close(){calls.push('ftp-close');}};},
   emit:(type,fields)=>{events.push({type,...fields});options.onEvent?.({type,...fields},input);}
  }).finally(()=>{finished=true;});promise.catch(()=>{});
- input.write(JSON.stringify({consoleAddress:'192.0.2.88',port:8080})+'\n');
+ input.write(JSON.stringify({consoleAddress:'192.0.2.88',port:8080,
+  ...(options.ftp?{mode:'ftp'}:{})})+'\n');
  t.after(async()=>{live=false;input.end();blockedGate.resolve();await promise.catch(()=>{});});
  return {input,events,calls,attachment,promise,blockedGate,get finished(){return finished;}};
 }
@@ -75,9 +127,22 @@ test('one selected catalog title uses the exact configured console endpoint and 
  const f=await helperFixture(t,{onEvent(event,input){if(event.type==='catalog')input.write(JSON.stringify({action:'select-game',titleId:title})+'\n'+JSON.stringify({action:'select-game',titleId:title})+'\n');if(event.type==='running')input.end();}});
  await f.promise;assert.equal(f.calls.filter(call=>call.startsWith('prepare:')).length,1);assert.equal(f.calls.filter(call=>call.startsWith('deploy:')).length,1);
  const running=f.events.find(event=>event.type==='running');assert.equal(running.host,'192.0.2.88');assert.equal(running.httpURL,'http://192.0.2.88:8080/');
- assert.ok(f.calls.indexOf('ftp-close')<f.calls.indexOf('attachment-close'));assert.equal(f.events.at(-1).type,'stopped');
+ assert.ok(f.calls.indexOf('server-close')<f.calls.indexOf('attachment-close'));assert.equal(f.events.at(-1).type,'stopped');
 });
-test('EOF before selection releases only the attachment and never deploys native HTTP/WebDAV',async t=>{
+test('FTP mode publishes the Mac-local address and closes the bridge before the console server',async t=>{
+ const f=await helperFixture(t,{ftp:true,onEvent(event,input){
+  if(event.type==='catalog')input.write(JSON.stringify({action:'select-game',titleId:title})+'\n');
+  if(event.type==='running')input.end();
+ }});
+ await f.promise;
+ const running=f.events.find(event=>event.type==='running');
+ assert.equal(running.httpURL,'http://192.0.2.88:8080/');
+ assert.equal(running.ftpURL,'ftp://127.0.0.1:34678/');
+ assert.ok(f.calls.indexOf('ftp-start:192.0.2.88:8080')<f.calls.indexOf('ftp-close'));
+ assert.ok(f.calls.indexOf('ftp-close')<f.calls.indexOf('server-close'));
+ assert.equal(f.events.at(-1).cleanupVerified,true);
+});
+test('EOF before selection releases only the attachment and never deploys the native server',async t=>{
  const f=await helperFixture(t,{onEvent(event,input){if(event.type==='catalog')input.end();}});await f.promise;
  assert.deepEqual(f.calls,['attach','catalog','attachment-close']);
 });

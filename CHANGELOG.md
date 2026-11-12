@@ -1,5 +1,30 @@
 # Changelog
 
+## mac2jb v0.8.2 — Build 550 (unreleased)
+
+### Upstream 0.8.0–0.8.2
+
+- Add verified CivSwitch FS sessions for SaveKit, OunceCake and the experimental Modloader, plus an experimental Seedsow Lullaby FS bridge.
+- Add CivHomebrew and Moonlight setup, saved boot triggers, public/custom app catalogs, verified installs and updates, and SW2NES/Jellyfin/Moonlight installation.
+- Update Artemis launcher saves to v2; add Nora HD demo, Seedsow full-game and Lua Editor Pro v0.4.0 installers, plus Balatro RCE v1.1.0 and Gravity Circuit save installers.
+- Improve SaveKit large writes and readback verification; make Modloader installation use compatible SD-card mods, with optional Mac uploads; bundle NXFormat 1.0.3.
+
+### Additional fork changes
+
+- Preserve the MistBrew design and extended OunceCake game, firmware, system and save export/import features.
+- Add Astral host support, SmileBASIC Demo imports and saved USB/network preferences.
+- Improve OunceCake physical GameCard and indexed Update exports; add optional Mac-local FTP, resumable TAR downloads and faster controller navigation.
+- Remove DOOM, File Exchange, IZlauncher and their dependent components; omit the disabled CivSwitch Stremio prototype.
+
+Upstream release notes: [0.8.0](https://github.com/cpypwn/mac2jb/releases/tag/v0.8.0), [0.8.1](https://github.com/cpypwn/mac2jb/releases/tag/v0.8.1), [0.8.2](https://github.com/cpypwn/mac2jb/releases/tag/v0.8.2).
+
+## mac2jb v0.7.6 — Build 544
+
+- Redesign the Mac app with subtle pointer-responsive mist and fix overlapping console tabs.
+- Import edited Account and Device saves from WinSCP in the same OunceCake session. The game folder shows its TitleID, and one confirmation applies the uploads while preserving the rest of the save.
+- Reuse the existing export as the backup and verify the result after writing.
+- Show build numbers alongside the version and automatically keep the three most recent session folders, protecting active sessions.
+
 ## mac2jb v0.7.5 — 2026-11-06
 
 - Add read-only HTTP/WebDAV save exports, including uninstalled games, bulk backups, profile names and labeled BCAT archives.

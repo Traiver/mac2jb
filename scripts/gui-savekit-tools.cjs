@@ -200,6 +200,16 @@ async function validRun(runDirectory) {
   check(typeof runDirectory === 'string' && path.isAbsolute(runDirectory),
     'Choose a verified held RPC run.');
   const run = await fsp.realpath(runDirectory);
+  const civ = /\/civswitch-fs-[a-f0-9]{16}\/port\/engine\/runs\/switch2-[A-Za-z0-9_-]+$/.test(run);
+  const artemis = /\/artemis-fs-[a-f0-9]{16}\/port\/engine\/runs\/switch2-[A-Za-z0-9_-]+$/.test(run);
+  if (civ || artemis) {
+    if (civ) await require('./prepare-civswitch-savekit.cjs').verifyPreparedRun(null, run);
+    else await require('./prepare-artemis-fs.cjs').verifyPreparedRun(null, run);
+    await require('./gui-dump.cjs').verifiedSession(run);
+    if (process.env.MAC2JB_ATTACHED_RUN_MANIFEST)
+      await require('./rpc-attachment.cjs').validateManifest(root, run);
+    return run;
+  }
   const vendor = await fsp.realpath(path.join(root, 'vendor'));
   const relative = path.relative(vendor, run).split(path.sep);
   check(relative.length === 3 && /^ns2-savekit-host-[A-Za-z0-9]+$/.test(relative[0]) &&
@@ -334,24 +344,38 @@ async function stageFiles(sourceFolder, stage) {
   check(sourceInfo.isDirectory() && !sourceInfo.isSymbolicLink(),
     'Choose a regular folder of save files.');
   const source = await fsp.realpath(sourceFolder);
-  const names = await fsp.readdir(source);
   const files = [];
   let total = 0;
-  for (const name of names) {
-    if (name === 'manifest.json' || name === '.DS_Store' || name === '.nx_save_meta.bin' ||
-        name.startsWith('._')) continue;
-    check(safeRootName(name), 'Only flat save files can be written: ' + name);
-    const file = path.join(source, name);
-    const info = await fsp.lstat(file);
-    check(info.isFile() && !info.isSymbolicLink() && info.size <= 64 * 1024 * 1024,
-      'The source contains an unsupported file: ' + name);
-    total += info.size;
-    check(total <= 256 * 1024 * 1024 && files.length < 2048,
-      'The selected save folder is too large for a single write.');
-    const target = path.join(stage, name);
-    await fsp.copyFile(file, target, fs.constants.COPYFILE_EXCL);
-    files.push({name, path: target, sha256: await shaFile(target)});
+  async function walk(folder, prefix = '') {
+    for (const entry of (await fsp.readdir(folder, {withFileTypes: true}))
+      .sort((a, b) => a.name.localeCompare(b.name))) {
+      const name = entry.name;
+      if (name === '.DS_Store' || name === '.nx_save_meta.bin' || name.startsWith('._') ||
+          (!prefix && name === 'manifest.json')) continue;
+      check(safeRootName(name), 'The source contains an unsafe name: ' + name);
+      const relative = prefix ? prefix + '/' + name : name;
+      safeSavePath('/' + relative);
+      check(Buffer.byteLength('/' + relative, 'utf8') < 0x301,
+        'The source contains a path that is too long: ' + relative);
+      const file = path.join(folder, name);
+      const info = await fsp.lstat(file);
+      check(!info.isSymbolicLink(), 'The source contains a symbolic link: ' + relative);
+      if (info.isDirectory()) {
+        await walk(file, relative);
+        continue;
+      }
+      check(info.isFile() && info.size <= 64 * 1024 * 1024,
+        'The source contains an unsupported file: ' + relative);
+      total += info.size;
+      check(total <= 256 * 1024 * 1024 && files.length < 2048,
+        'The selected save folder is too large for a single write.');
+      const target = path.join(stage, relative);
+      await fsp.mkdir(path.dirname(target), {recursive: true});
+      await fsp.copyFile(file, target, fs.constants.COPYFILE_EXCL);
+      files.push({name: relative, path: target, sha256: await shaFile(target)});
+    }
   }
+  await walk(source);
   check(files.length > 0, 'The selected folder contains no save files.');
   return files;
 }

@@ -89,7 +89,7 @@ function createGameFiles(attachment, shouldStop = () => false) {
           ? await openUpdate({ title, storage, attributes, source, section, originalSource: source.originalSource })
           : await openDlcPatch({ attachment:{...attachment, shouldStop}, title, source, originalSource: source.originalSource });
       } else if (update && source.contentType === 1) {
-        source.originalSource = originals.get(source.programIndex) || originals.get(0);
+        source.originalSource = originals.get(source.programIndex);
         handle = await openUpdate({
           title, storage, attributes, source, section,
           originalSource: source.originalSource,
@@ -559,14 +559,25 @@ async function prepareGame({ attachment: a, title, baseOnly = false, part, expor
         throw error;
 
       prepared.add(error.source.contentPath);
+      let licensed;
       try {
-        await prepareInstalledLicense({ ...a, title: error.source.applicationTitle || title, source: error.source, shouldStop });
+        licensed = await prepareInstalledLicense({ ...a, title: error.source.applicationTitle || title, source: error.source, shouldStop });
       } catch (failure) {
         failure.source ||= error.source;
         throw failure;
       }
       cancelled();
-      return files.open({ title, ...options });
+      try {
+        return await files.open({ title, ...options });
+      } catch (retryError) {
+        if (!licensed && !retryError.cleanupBlocked && error.source.storage === 2 && retryError.nativeResult?.canonical === 0x7d802) {
+          const unavailable = new Error('Game card content requires rights unavailable in this held RPC session', { cause: retryError });
+          unavailable.code = 'GAME_CARD_RIGHTS_UNAVAILABLE';
+          unavailable.source = retryError.source || error.source;
+          throw unavailable;
+        }
+        throw retryError;
+      }
     }
   }
 

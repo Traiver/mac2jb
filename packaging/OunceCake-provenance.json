@@ -115,6 +115,21 @@
       "date": "2026-11-05",
       "file": "engine/mounts.cjs",
       "description": "Retain readable program sections as an explicitly partial export when an unsupported original-content manual cannot mount; propagate cancellation, cleanup and transport failures."
+    },
+    {
+      "date": "2026-11-08",
+      "file": "engine/program.cjs, engine/mounts.cjs",
+      "description": "Port the indexed program update fix from MissHexa 58ff39a. Match the original program index and temporarily select its Base locations; verify resolver restoration under the fork's existing cleanup rules."
+    },
+    {
+      "date": "2026-11-10",
+      "file": "engine/native-license.cjs, engine/mounts.cjs",
+      "description": "Port physical GameCard and optional legacy license handling from cpypwn 5ce51c2 while retaining cooperative cancellation, typed errors and the current HTTP runtime."
+    },
+    {
+      "date": "2026-11-12",
+      "file": "engine/content.cjs",
+      "description": "Expose discoverApplications for the new upstream filesystem integrations while retaining the fork catalog, scoped exports, save tools and native HTTP ABI."
     }
   ],
   "httpBase": {

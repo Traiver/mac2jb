@@ -56,6 +56,54 @@ import Foundation
             fatalError("missing current session should be rejected")
         } catch SessionDataCleanup.CleanupError.invalidSessionDirectory {}
 
+        try testRetention(in: parent)
         print("session data cleanup: passed")
+    }
+
+    static func testRetention(in parent: URL) throws {
+        let manager = FileManager.default
+        let app = parent.appendingPathComponent("retention/mac2jb", isDirectory: true)
+        let sessions = app.appendingPathComponent("Sessions", isDirectory: true).resolvingSymlinksInPath()
+        try manager.createDirectory(at: sessions, withIntermediateDirectories: true,
+                                    attributes: [.posixPermissions: 0o700])
+        let ordered = try (0..<5).map { index in
+            let folder = sessions.appendingPathComponent(UUID().uuidString, isDirectory: true)
+            let lease = try SessionDataCleanup.createSession(at: folder)
+            try lease.close()
+            try manager.setAttributes([.creationDate: Date(timeIntervalSince1970: 1_700_000_000 + Double(index))],
+                                      ofItemAtPath: folder.path)
+            return folder
+        }
+        let unrelated = sessions.appendingPathComponent("keep-me")
+        try manager.createDirectory(at: unrelated, withIntermediateDirectories: false)
+        let link = sessions.appendingPathComponent(UUID().uuidString)
+        try manager.createSymbolicLink(at: link, withDestinationURL: unrelated)
+        let backup = ordered[1].appendingPathComponent("runs/mintbrew-test/save-backups", isDirectory: true)
+        try manager.createDirectory(at: backup, withIntermediateDirectories: true)
+        try Data("backup".utf8).write(to: backup.appendingPathComponent("save"))
+
+        let activeLog = ordered[0].appendingPathComponent("gui-session.log")
+        try Data().write(to: activeLog)
+        let logHandle = try FileHandle(forWritingTo: activeLog)
+        defer { try? logHandle.close() }
+        let removed = try SessionDataCleanup.pruneOldSessions(in: sessions)
+        precondition(removed == 2)
+        for (index, folder) in ordered.enumerated() {
+            precondition(manager.fileExists(atPath: folder.path) == [0, 3, 4].contains(index))
+        }
+        let appEntries = try manager.contentsOfDirectory(atPath: app.path)
+        precondition(appEntries == ["Sessions"])
+        precondition(manager.fileExists(atPath: unrelated.path) && manager.fileExists(atPath: link.path))
+
+        let new = sessions.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let lease = try SessionDataCleanup.createSession(at: new)
+        defer { try? lease.close() }
+        try manager.setAttributes([.creationDate: Date(timeIntervalSince1970: 1_600_000_000)], ofItemAtPath: new.path)
+        let pruned = try SessionDataCleanup.pruneOldSessions(in: sessions)
+        precondition(pruned == 1)
+        precondition(manager.fileExists(atPath: new.path))
+        precondition(!manager.fileExists(atPath: ordered[3].path))
+        let repeatPrune = try SessionDataCleanup.pruneOldSessions(in: sessions)
+        precondition(repeatPrune == 0)
     }
 }

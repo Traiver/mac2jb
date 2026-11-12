@@ -40,6 +40,33 @@ const safePath = value => typeof value === 'string' && value.startsWith('/') &&
   !/[\x00-\x1f\x7f\\]/.test(value) && Buffer.byteLength(value) < 0x301 &&
   value.slice(1).split('/').every(part => part && part !== '.' && part !== '..');
 
+async function ensureParentDirectories(filePaths, inspect, mutate, created = () => {}) {
+  const parents = new Set();
+  for (const filePath of filePaths) {
+    const parts = filePath.split('/').filter(Boolean);
+    let prefix = '';
+    for (let i = 0; i < parts.length - 1; i++) {
+      prefix += '/' + parts[i];
+      parents.add(prefix);
+    }
+  }
+  for (const prefix of [...parents].sort((a, b) =>
+    a.split('/').length - b.split('/').length || a.localeCompare(b))) {
+    const existing = await inspect(prefix);
+    if (!existing.result) {
+      check(existing.data.length >= 4 && existing.data.readUInt32LE(0) === 0,
+        'A parent path is not a directory: ' + prefix);
+      continue;
+    }
+    check(Number(existing.canonicalResult) === 0x202,
+      'Could not inspect parent directory ' + prefix + ': ' + code(existing.result));
+    const made = await mutate(2, prefix, Buffer.alloc(0));
+    check(!made.result,
+      'CreateDirectory failed for ' + prefix + ': ' + code(made.result));
+    created(prefix);
+  }
+}
+
 async function main() {
   const [runDirectory, programText, uidText, verifyDirectory, manifestPath] =
     process.argv.slice(2);
@@ -89,6 +116,13 @@ async function main() {
     check(typeof entry.local === 'string' && path.isAbsolute(entry.local),
       'Invalid staged source for ' + entry.path);
     const bytes = await fs.readFile(entry.local);
+    if (entry.size !== undefined)
+      check(Number.isSafeInteger(entry.size) && bytes.length === entry.size,
+        'Staged file size differs from the manifest: ' + entry.path);
+    if (entry.sha256 !== undefined)
+      check(typeof entry.sha256 === 'string' && /^[0-9a-f]{64}$/.test(entry.sha256) &&
+        sha(bytes) === entry.sha256,
+      'Staged file hash differs from the manifest: ' + entry.path);
     const rel = entry.path.slice(1);
     jobs.push({name: rel, path: entry.path, bytes, replace: entry.replace === true,
       local: path.join(verifyDirectory, rel)});
@@ -163,9 +197,7 @@ async function main() {
       'Save open failed: ' + code(reply.result));
     return reply.moves[0];
   };
-  const createFile = async (handle, name, size) => {
-    // CreateFile is a path method too, but the read-only helper rejects it, so
-    // build the pointer-send-static packet here (same layout as pathMethod).
+  const mutablePath = async (handle, command, name, input) => {
     const {packet} = require(path.join(run, 'shared/ipc.cjs'));
     const text = Buffer.from(name, 'utf8');
     check(name.startsWith('/') && text.length < 0x301, 'Invalid create path');
@@ -173,16 +205,20 @@ async function main() {
     text.copy(buffer);
     const address = s.base + 0x2000;
     await s.write(address, buffer);
-    const input = Buffer.alloc(16);
-    input.writeUInt32LE(0, 0);
-    input.writeBigUInt64LE(BigInt(size), 8);
-    const bytes = packet(0, input);
+    const bytes = packet(command, input);
     const a = BigInt(address);
     bytes.writeUInt32LE((4 | 1 << 16) >>> 0);
     bytes.writeUInt32LE(Number(0x301n << 16n | (a >> 36n & 7n) << 6n |
       ((a >> 32n) & 15n) << 12n), 8);
     bytes.writeUInt32LE(Number(a & 0xffffffffn), 12);
-    return domain.send(s, 'CreateFile ' + name, handle, bytes);
+    return domain.send(s, (command === 2 ? 'CreateDirectory ' : 'CreateFile ') + name,
+      handle, bytes);
+  };
+  const createFile = (handle, name, size) => {
+    const input = Buffer.alloc(16);
+    input.writeUInt32LE(0, 0);
+    input.writeBigUInt64LE(BigInt(size), 8);
+    return mutablePath(handle, 0, name, input);
   };
   const writeFile = async (handle, name, bytes) => {
     let opened = await filesystem.pathMethod(s, handle, 8, name, u32(3));
@@ -227,6 +263,8 @@ async function main() {
       const opened = await filesystem.openFile(s, save, job.path);
       const present = !opened.result;
       if (!present) {
+        check((Number(opened.canonicalResult ?? opened.result) & 0x3fffff) === 0x202,
+          'Cannot establish whether ' + job.path + ' exists: ' + code(opened.result));
         check(!job.replace, 'Cannot replace ' + job.path + ': it is not in the save');
         continue;
       }
@@ -258,16 +296,10 @@ async function main() {
     await s.close(save); save = null;
 
     save = await openSave(51);
-    // Parent directories first: Nora keeps /debug/lua/index.lua. Already-exists replies
-    // are expected here; a real failure shows up on the file write itself.
-    for (const job of jobs) {
-      const parts = job.path.split('/').filter(Boolean);
-      let prefix = '';
-      for (let i = 0; i < parts.length - 1; i++) {
-        prefix += '/' + parts[i];
-        await filesystem.pathMethod(s, save, 1, prefix, Buffer.alloc(0)).catch(() => {});
-      }
-    }
+    await ensureParentDirectories(jobs.map(job => job.path),
+      prefix => filesystem.pathMethod(s, save, 7, prefix),
+      (command, prefix, input) => mutablePath(save, command, prefix, input),
+      prefix => console.log('created parent directory', prefix));
     for (const job of jobs) {
       console.log('mounted read-write; writing', job.path, job.bytes.length,
         'bytes (sha256 ' + sha(job.bytes).slice(0, 16) + '...)');
@@ -322,4 +354,6 @@ async function main() {
   }
 }
 
-main().catch(error => { console.error('FAILED:', error.message); process.exit(1); });
+module.exports = {ensureParentDirectories, main};
+if (require.main === module)
+  main().catch(error => { console.error('FAILED:', error.message); process.exit(1); });

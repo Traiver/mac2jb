@@ -10,7 +10,7 @@ const {verifiedSession} = require('./gui-dump.cjs');
 const FORMAT = 'mac2jb-local-rpc-attachment-v1';
 const OWNER = '.mac2jb-attachment-owner.json';
 const ATTEMPT = '.mac2jb-hblauncher-attempt.json';
-const applications = new Set(['hblauncher', 'gpubrewlauncher', 'mintbrew', 'native-hblauncher', 'custom-homebrew', 'izlauncher', 'stremio', 'ouncecake', 'system-code-dump']);
+const applications = new Set(['hblauncher', 'gpubrewlauncher', 'mintbrew', 'native-hblauncher', 'custom-homebrew', 'stremio', 'ouncecake', 'modloader', 'system-code-dump', 'savekit']);
 const check = (value, message) => {if (!value) throw Error(message);};
 const hash = value => crypto.createHash('sha256').update(value).digest('hex');
 
@@ -58,7 +58,7 @@ async function verifyCode(directory, source, replacements = {}) {
     const memory = /^switch2\/memory\/reserved-gap-\d{10,17}-(.+)\.cjs$/.exec(name);
     if (memory) {
       const suffix = memory[1], direct = new Set(['cache-address-plan','fs-memory-control','session-tools',
-        'run-control','capture-workers','native-links']);
+        'run-control','capture-workers','native-links','wave-overlap']);
       if (direct.has(suffix)) return 'switch2/memory/'+suffix+'.cjs';
       if (['native-worker','affinity'].includes(suffix)) return 'switch2/app/'+suffix+'.cjs';
       const copies = {'source':'probe-reserved-gap','address-plan-source':'cache-address-plan',
@@ -168,7 +168,14 @@ function retainedInfo(socketPath, timeoutMs = 60000, signal) {
 async function inspect(root, directory, options = {}) {
   await owned(directory, 'directory');
   const result = await readJSON(path.join(directory, 'result.json'));
-  const trusted = trustedSourceForDigest(root, result.sourceSha256), profile = trusted.profile;
+  const civ = /\/civswitch-fs-[a-f0-9]{16}\/port\/engine\/runs\/switch2-[A-Za-z0-9_-]+$/.test(directory);
+  const artemis = /\/artemis-fs-[a-f0-9]{16}\/port\/engine\/runs\/switch2-[A-Za-z0-9_-]+$/.test(directory);
+  const trusted = civ ? await require('./prepare-civswitch-savekit.cjs').verifyPreparedRun(null, directory)
+    : artemis ? await require('./prepare-artemis-fs.cjs').verifyPreparedRun(null, directory)
+      : trustedSourceForDigest(root, result.sourceSha256);
+  check(trusted.sourceSha256 === undefined || trusted.sourceSha256 === result.sourceSha256,
+    'The held run source digest does not match its pinned host.');
+  const profile = trusted.profile;
   // bounded private reads supplement the ordinary held proof validator.
   const current = await readJSON(path.join(directory, 'switch2/fs-execution-current.json'));
   async function runJSON(file) {
@@ -187,11 +194,14 @@ async function inspect(root, directory, options = {}) {
   const connectionFile = path.join(directory, 'connection.json');
   const connection = await readJSON(connectionFile), addresses = connection.addresses;
   check(Number.isSafeInteger(connection.port) && connection.port > 0 && connection.port <= 65535 &&
-    addresses?.session === proof.session && addresses?.platform === 2 && addresses?.target === 'switch2',
+    addresses?.session === proof.session && addresses?.platform === 2 &&
+    addresses?.target === (civ ? 'civ7' : artemis ? 'artemis-seedsow' : 'switch2'),
     'The native bridge does not belong to the selected held run.');
-  for (const name of ['scratch','main','sdk','backing','controller'])
+  for (const name of ['scratch','main','sdk',...(civ || artemis ? [] : ['backing','controller'])])
     check(Number.isSafeInteger(addresses[name]) && addresses[name] >= 4096 && addresses[name] < 2 ** 39,
       'Invalid held native address: '+name);
+  if (civ || artemis) check(addresses.backing === 0 && addresses.controller === 0,
+    'The application bridge has unexpected reserved addresses.');
   const socketPath = current.retainedEndpoint.socketPath;
   check(acquisition.socketPath === socketPath && report.memoryControl?.socketPath === socketPath,
     'The held retained endpoint does not belong to the current acquisition.');
@@ -256,6 +266,34 @@ async function manifestDirectory(root) {
   await owned(directory, 'directory'); return directory;
 }
 
+async function selectedRun(root, selected, options = {}) {
+  await owned(selected, 'directory');
+  if (!(await absent(path.join(selected, 'result.json')))) return inspect(root, selected, options);
+  const vendor = path.join(selected, 'vendor');
+  await owned(vendor, 'directory');
+  const matches = [];
+  for (const host of (await fs.readdir(vendor, {withFileTypes:true})).slice(0, 32)) {
+    if (!host.isDirectory() || host.name !== 'ns2jb' &&
+        !/^ns2-savekit-host-[A-Za-z0-9]{6}$/.test(host.name)) continue;
+    const runs = path.join(vendor, host.name, 'runs');
+    try {await owned(runs, 'directory');} catch {continue;}
+    for (const run of (await fs.readdir(runs, {withFileTypes:true})).slice(0, 32)) {
+      if (!run.isDirectory() || !/^switch2-[A-Za-z0-9]{6}$/.test(run.name)) continue;
+      try {
+        const current = await inspect(root, path.join(runs, run.name),
+          {...options, timeoutMs:Math.min(options.timeoutMs ?? 2500, 2500), allowRetainedBusy:true});
+        matches.push(current);
+      } catch {}
+      if (matches.length > 1) break;
+    }
+    if (matches.length > 1) break;
+  }
+  check(matches.length === 1, matches.length
+    ? 'This session has multiple live RPC runs. Choose the specific run folder.'
+    : 'No verified live RPC run was found inside this session folder.');
+  return matches[0];
+}
+
 async function validateManifest(root, directory, manifestPath = process.env.MAC2JB_ATTACHED_RUN_MANIFEST, options = {}) {
   root = await fs.realpath(root);
   check(typeof manifestPath === 'string' && path.dirname(manifestPath) === path.join(root, '.attachments') &&
@@ -276,12 +314,11 @@ async function validateManifest(root, directory, manifestPath = process.env.MAC2
 
 async function prepare(root, config, options = {}) {
   check(config && config.kind === 'local' && typeof config.runDirectory === 'string' &&
-    path.isAbsolute(config.runDirectory), 'Choose an existing local held RPC run folder.');
+    path.isAbsolute(config.runDirectory), 'Choose an existing local held RPC run or session folder.');
   root = await fs.realpath(root);
-  const directory = path.resolve(config.runDirectory);
-  // reject aliased selections rather than following a link into another run.
-  check(config.runDirectory === directory, 'Use the canonical path to the held run folder.');
-  const initial = await inspect(root, directory, options);
+  const selected = path.resolve(config.runDirectory);
+  check(config.runDirectory === selected, 'Use the canonical path to the held run or session folder.');
+  const initial = await selectedRun(root, selected, options), directory = initial.directory;
   check(await absent(path.join(directory, ATTEMPT)) && await absent(path.join(directory, OWNER)),
     'This held session already has a homebrew attempt. Start a fresh console session.');
   const token = crypto.randomBytes(32).toString('hex');
@@ -365,4 +402,4 @@ async function prepare(root, config, options = {}) {
     manifestPath, verify, abortVerification, claimApplication, releaseApplication, close};
 }
 
-module.exports = {prepare, validateManifest, inspect, verifyCode, statusRequest, retainedInfo, OWNER, ATTEMPT};
+module.exports = {prepare, validateManifest, inspect, selectedRun, verifyCode, statusRequest, retainedInfo, OWNER, ATTEMPT};

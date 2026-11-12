@@ -10,6 +10,7 @@ enum EmbeddedPayloadMetadata { static let sha256 = "unused-fixture" }
 
 @MainActor final class SetupFixture {
     let root: URL
+    let timingSuiteName = "mac2jb-test-timing-" + UUID().uuidString
     let model: SessionModel
 
     init(edition: SmileBASICEdition, host: HostProfile = .kurumuz,
@@ -102,8 +103,6 @@ enum EmbeddedPayloadMetadata { static let sha256 = "unused-fixture" }
                 : > held-choice-received
                 gate release-rpc-held
                 printf '{"type":"rpc-held","path":"%s/held-fixture","rpcCommand":"inert-fixture-rpc"}\n' "$PWD" ;;
-              *'"action":"list-izlauncher-modules"'*)
-                emit '{"type":"izlauncher-catalog","modules":[]}' ;;
               *'"action":"start-savekit"'*)
                 emit '{"type":"savekit-selected","message":"SaveKit is ready"}' ;;
               *'"action":"finish-savekit"'*)
@@ -123,6 +122,8 @@ enum EmbeddedPayloadMetadata { static let sha256 = "unused-fixture" }
                 case "$control" in
                   *'"game":"seedsow"'*) game=seedsow ;;
                   *'"game":"nora"'*) game=nora ;;
+                  *'"game":"nora1"'*) game=nora1 ;;
+                  *'"game":"hamidashi"'*) game=hamidashi ;;
                   *) emit '{"type":"action-rejected","action":"install-artemis-save"}'; continue ;;
                 esac
                 : > artemis-install-received
@@ -145,6 +146,13 @@ enum EmbeddedPayloadMetadata { static let sha256 = "unused-fixture" }
                   gate release-artemis-ready
                 fi
                 printf '{"type":"savekit-ready","game":"%s","message":"RPC remains held"}\n' "$game" ;;
+              *'"action":"install-gravcirc-save"'*)
+                : > gravcirc-install-received
+                gate release-gravcirc-save-complete
+                mkdir -p held-fixture/gravcirc-backups/gravcirc-fixture
+                backup="$PWD/held-fixture/gravcirc-backups/gravcirc-fixture"
+                printf '{"type":"savekit-complete","game":"gravcirc","files":18,"backupPath":"%s"}\n' "$backup"
+                emit '{"type":"savekit-ready","game":"gravcirc","message":"RPC remains held"}' ;;
               *'"action":"savekit-tool"'*)
                 case "$control" in
                   *'"action":"titles"'*)
@@ -152,7 +160,7 @@ enum EmbeddedPayloadMetadata { static let sha256 = "unused-fixture" }
                     emit '{"type":"savekit-tool-complete","action":"titles","message":"Title list ready"}' ;;
                   *) emit '{"type":"savekit-tool-complete","action":"backup","message":"Save export verified"}' ;;
                 esac ;;
-              *'"action":"launch-mintbrew"'*|*'"action":"launch-izlauncher"'*)
+              *'"action":"launch-mintbrew"'*)
                 emit '{"type":"homebrew-started"}'
                 gate release-gpu-running
                 emit '{"type":"homebrew-running","message":"Inert GPU launcher ready."}' ;;
@@ -288,7 +296,7 @@ enum EmbeddedPayloadMetadata { static let sha256 = "unused-fixture" }
         try Data(worker.utf8).write(to: executable)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
         try Data("{\"id\":\"\(host.rawValue)\"}".utf8).write(to: root.appendingPathComponent("selected-host.json"))
-        model = SessionModel(addressProvider: addressProvider, runtime: BundledRuntime(root: root), edition: edition)
+        model = SessionModel(addressProvider: addressProvider, runtime: BundledRuntime(root: root), edition: edition, timingDefaults: UserDefaults(suiteName: timingSuiteName)!, networkDefaults: UserDefaults(suiteName: timingSuiteName)!)
         model.phase = .ready; model.driverLoaded = true
     }
 
@@ -299,6 +307,7 @@ enum EmbeddedPayloadMetadata { static let sha256 = "unused-fixture" }
             .split(separator: "\n").compactMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String:Any] }
     }
     func dispose() {
+        UserDefaults(suiteName: timingSuiteName)?.removePersistentDomain(forName: timingSuiteName)
         if let log = model.diagnosticLogURL, log.deletingLastPathComponent() != root,
            log.deletingLastPathComponent().lastPathComponent.hasPrefix("mac2jb-gui-error-") {
             try? FileManager.default.removeItem(at: log.deletingLastPathComponent())
@@ -789,7 +798,7 @@ enum EmbeddedPayloadMetadata { static let sha256 = "unused-fixture" }
               gpu.model.detail.contains("safely disconnect") && gpu.model.detail.contains("same network") &&
               gpu.model.detail.contains("SmileBASIC and mac2jb open"),
               "the selected MintBrew path shows post-RPC USB guidance")
-        gpu.model.launchMintBrew(); gpu.model.launchIZlauncher(); gpu.model.checkRPCStatus(); gpu.model.startKeyboardForwarding()
+        gpu.model.launchMintBrew(); gpu.model.checkRPCStatus(); gpu.model.startKeyboardForwarding()
         check(!gpu.model.postRun.canFinish && !gpu.model.canLaunchHomebrew && !gpu.model.canStartKeyboard,
               "MintBrew startup blocks other apps, status, keyboard and premature Finish")
         try gpu.put("release-gpu-running")
@@ -806,7 +815,7 @@ enum EmbeddedPayloadMetadata { static let sha256 = "unused-fixture" }
         try await until("MintBrew original-session final cleanup") { gpu.model.phase == .verified && !gpu.model.hasLiveWorkers }
         let controls = try String(contentsOf: gpu.root.appendingPathComponent("controls"), encoding: .utf8)
             .split(separator: "\n").map { try JSONSerialization.jsonObject(with: Data($0.utf8)) as! [String:Any] }
-        check(controls.compactMap { $0["action"] as? String }.filter { $0 != "list-izlauncher-modules" } ==
+        check(controls.compactMap { $0["action"] as? String } ==
               ["post-run", "launch-mintbrew", "dump-system-code", "finish"] &&
               gpu.invocations == ["host"],
               "chosen MintBrew and its dump use the same original held host")
@@ -815,7 +824,7 @@ enum EmbeddedPayloadMetadata { static let sha256 = "unused-fixture" }
               (launchControl?["libraryItems"] as? [[String: String]])?.first?["id"] == "fixture-library",
               "chosen MintBrew receives the current Stremio account configuration")
 
-        for (keepRPC, launcher) in [(false, "mint"), (true, "mint"), (true, "iz")] {
+        for keepRPC in [false, true] {
             let host = try SetupFixture(edition: .full, addressProvider: { [address] })
             defer { host.dispose() }
             host.model.addresses = [address]; host.model.selectedAddress = address.address
@@ -840,7 +849,7 @@ enum EmbeddedPayloadMetadata { static let sha256 = "unused-fixture" }
                   "host-ready exposes only the captured pairing command and never launches HID")
             check(host.model.activeSessionSupportsHomebrew == keepRPC && !host.model.canLaunchHomebrew && !host.model.postRun.heldConfirmed,
                   "host readiness alone never grants homebrew or held proof")
-            host.model.start(); host.model.launchMintBrew(); host.model.launchIZlauncher()
+            host.model.start(); host.model.launchMintBrew()
             try host.put("release-console-result")
             if keepRPC {
                 try await until("manual host held choice") { FileManager.default.fileExists(atPath: host.root.appendingPathComponent("held-choice-received").path) }
@@ -849,9 +858,9 @@ enum EmbeddedPayloadMetadata { static let sha256 = "unused-fixture" }
                 try await until("host-only positive held proof") { host.model.canLaunchHomebrew }
                 check(host.model.phase == .rpcHeld && !host.model.postRun.homebrewAttempted,
                       "host-only held RPC keeps app selection manual")
-                if launcher == "iz" { host.model.launchIZlauncher() } else { host.model.launchMintBrew() }
-                check(host.model.homebrewTitle == (launcher == "iz" ? "IZlauncher" : "MistBrew"),
-                      "host-only launches the selected independent launcher")
+                host.model.launchMintBrew()
+                check(host.model.homebrewTitle == "MistBrew",
+                      "host-only launches the selected homebrew")
                 try host.put("release-gpu-running")
                 try await until("homebrew on manually connected host") { host.model.phase == .homebrewRunning }
                 host.model.finishPostRun()
@@ -986,11 +995,11 @@ enum EmbeddedPayloadMetadata { static let sha256 = "unused-fixture" }
         try await until("demo MintBrew session finishes") { demo.model.phase == .verified && !demo.model.hasLiveWorkers }
         let demoControls = try String(contentsOf: demo.root.appendingPathComponent("controls"), encoding: .utf8)
             .split(separator: "\n").map { try JSONSerialization.jsonObject(with: Data($0.utf8)) as! [String:Any] }
-        check(demoControls.compactMap { $0["action"] as? String }.filter { $0 != "list-izlauncher-modules" } ==
+        check(demoControls.compactMap { $0["action"] as? String } ==
               ["post-run", "launch-mintbrew", "finish"] && demo.invocations == ["host"],
               "chosen demo MintBrew reuses the original kurumuz host")
 
-        for savekitHost in [HostProfile.kurumuz, .cellenseres] {
+        for savekitHost in [HostProfile.kurumuz, .cellenseres, .astral] {
         let savekitChoice = try SetupFixture(edition: .demo, host: savekitHost, addressProvider: { [address] })
         defer { savekitChoice.dispose() }
         savekitChoice.model.addresses = [address]; savekitChoice.model.selectedAddress = address.address
@@ -1005,6 +1014,8 @@ enum EmbeddedPayloadMetadata { static let sha256 = "unused-fixture" }
         try await until("SaveKit held RPC") {
             savekitChoice.model.phase == .rpcHeld && savekitChoice.model.canStartSaveKit
         }
+        check(savekitChoice.model.canLaunchModloader == savekitHost.supportsModloader,
+              "\(savekitHost.rawValue) held RPC follows the Modloader host capability")
         savekitChoice.model.startSaveKit()
         try await until("SaveKit selected") {
             savekitChoice.model.savekitChoiceStarted && savekitChoice.model.canUseSaveKitTools
@@ -1120,8 +1131,10 @@ enum EmbeddedPayloadMetadata { static let sha256 = "unused-fixture" }
             }
         }
 
-        for game in [ArtemisSaveGame.seedsow, .nora] {
-            check(game.launcher == (game == .seedsow ? "seedsowhax" : "norahax"),
+        for game in [ArtemisSaveGame.seedsow, .nora, .nora1, .hamidashi] {
+            check(game.launcher == (game == .seedsow ? "seedsowhax" :
+                                     game == .nora ? "nora2hax" :
+                                     game == .nora1 ? "norahax" : "hamihax"),
                   "Artemis save names use their lowercase display form")
             let artemis = try SetupFixture(edition: .demo, addressProvider: { [address] })
             defer { artemis.dispose() }
@@ -1184,6 +1197,38 @@ enum EmbeddedPayloadMetadata { static let sha256 = "unused-fixture" }
             try await until("Artemis session cleanup") {
                 artemis.model.phase == .verified && !artemis.model.hasLiveWorkers
             }
+        }
+
+        let gravcirc = try SetupFixture(edition: .demo, addressProvider: { [address] })
+        defer { gravcirc.dispose() }
+        gravcirc.model.addresses = [address]
+        gravcirc.model.selectedAddress = address.address
+        gravcirc.model.selectRunMode(.seedsowSave)
+        gravcirc.model.start()
+        try await until("Gravity Circuit post-run choice") {
+            FileManager.default.fileExists(atPath: gravcirc.root.appendingPathComponent("held-choice-received").path)
+        }
+        try gravcirc.put("release-rpc-held")
+        try await until("Gravity Circuit held RPC") {
+            gravcirc.model.phase == .rpcHeld && gravcirc.model.canInstallGravCircSave
+        }
+        gravcirc.model.installGravCircSave()
+        try await until("Gravity Circuit install accepted") {
+            FileManager.default.fileExists(atPath: gravcirc.root.appendingPathComponent("gravcirc-install-received").path)
+        }
+        check(gravcirc.model.activeSaveGame == .gravcirc && gravcirc.model.phase == .installingSave &&
+              !gravcirc.model.canLaunchHomebrew,
+              "Gravity Circuit write reserves the held session")
+        try gravcirc.put("release-gravcirc-save-complete")
+        try await until("Gravity Circuit save returns to choices") {
+            gravcirc.model.phase == .rpcHeld && gravcirc.model.seedsowInstallCompleted &&
+            gravcirc.model.canLaunchHomebrew
+        }
+        check(gravcirc.model.seedsowBackupFolder?.path.contains("/gravcirc-backups/gravcirc-") == true,
+              "Gravity Circuit keeps its verified backup")
+        gravcirc.model.finishPostRun()
+        try await until("Gravity Circuit session cleanup") {
+            gravcirc.model.phase == .verified && !gravcirc.model.hasLiveWorkers
         }
 
         let artemisDisconnect = try SetupFixture(edition: .demo, addressProvider: { [address] })

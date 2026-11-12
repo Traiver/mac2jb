@@ -5,14 +5,12 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const {execFileSync} = require('node:child_process');
 const overlays = require('./prepare-homebrew-apps.cjs');
-const izdoom = require('../integrations/izdoom/prepare.cjs');
 const ouncecake = require('../integrations/mintbrew-ouncecake/prepare.cjs');
-const izExchange = require('../integrations/mintbrew-iz-exchange/prepare.cjs');
 
 const repository = path.resolve(__dirname, '..');
 const source = path.join(repository, 'vendor/MintBrew');
 const baseApps = ['hello-world', 'froggy-road', 'cpu-gpu-probe', 'chip8-test'];
-const runtimeApps = [...baseApps, 'ftpd-sb', 'izdoom', 'stremio', 'ouncecake', 'iz-exchange'];
+const runtimeApps = [...baseApps, 'ftpd-sb', 'stremio', 'ouncecake'];
 const check = (condition, message) => {if (!condition) throw Error(message);};
 
 function locate(input) {
@@ -44,9 +42,7 @@ function inspect(root, prepared) {
   }
   if (prepared) {
     overlays.verifyFiles(path.join(apps, 'ftpd-sb'), overlays.verifyOverlay(repository).manifest);
-    izdoom.verifyMintBrew(repository, root);
     ouncecake.verifyMintBrew(repository, root);
-    izExchange.verifyMintBrew(repository, root);
     const stremio = path.join(apps, 'stremio');
     const original = path.join(repository, 'stremio/app');
     for (const name of fs.readdirSync(original))
@@ -64,15 +60,16 @@ function inspect(root, prepared) {
   const plist = ['gui/Info.plist', 'source/gui/Info.plist']
     .map(name => path.join(repository, name)).find(file => fs.existsSync(file));
   check(plist, 'Missing mac2jb app version for MintBrew.');
-  const version = fs.readFileSync(plist, 'utf8')
-    .match(/<key>CFBundleShortVersionString<\/key>\s*<string>([^<]+)<\/string>/)?.[1];
-  check(version, 'Invalid mac2jb app version for MintBrew.');
+  const info = fs.readFileSync(plist, 'utf8');
+  const version = info.match(/<key>CFBundleShortVersionString<\/key>\s*<string>([^<]+)<\/string>/)?.[1];
+  const build = info.match(/<key>CFBundleVersion<\/key>\s*<string>([1-9][0-9]*)<\/string>/)?.[1];
+  check(version && build, 'Invalid mac2jb app version or build for MintBrew.');
   const metadata = JSON.parse(fs.readFileSync(path.join(shaderRoot, 'launcher-text.json'), 'utf8'));
   const sha = file => crypto.createHash('sha256').update(fs.readFileSync(path.join(shaderRoot, file))).digest('hex');
-  check(metadata.mac2jbVersion === version &&
+  check(metadata.mac2jbVersion === version && metadata.mac2jbBuild === build &&
     metadata.atlasSha256 === sha('launcher-text.bin') &&
     metadata.layoutSha256 === sha('launcher-text.glsl'),
-  'MintBrew type atlas does not match the mac2jb app version.');
+  'MintBrew type atlas does not match the mac2jb app version and build.');
   const text = fs.readFileSync(path.join(root, 'homebrew-launcher/launcher-text.py'), 'utf8');
   check(text.includes("('TITLE', 'MistBrew'") && text.includes('MAC2JB_HBLAUNCHER_FONT'),
     'MintBrew label or portable font setting is missing.');
@@ -90,7 +87,6 @@ function main(args = process.argv.slice(2)) {
     check(args.length === 1, '--check-source takes no runtime path.');
     const result = inspect(source, false);
     ouncecake.verifySource(repository);
-    izExchange.verifySource(repository);
     overlays.verifyOverlay(repository);
     const validator = process.env.SPIRV_VAL || path.join(repository, '.build-gui/homebrew/bin/spirv-val');
     for (const stage of ['vert', 'frag', 'comp'])
@@ -105,9 +101,7 @@ function main(args = process.argv.slice(2)) {
     inspect(root, false);
     for (const name of ['mintnes', 'mintftp']) fs.rmSync(path.join(root, 'apps', name), {recursive: true, force: true});
     if (!fs.existsSync(path.join(root, 'apps/ftpd-sb'))) overlays.installOverlays(repository, path.join(root, 'apps'));
-    izdoom.prepareMintBrew(repository, root);
     ouncecake.prepareMintBrew(repository, root);
-    izExchange.prepareMintBrew(repository, root);
     const stremio = path.join(root, 'apps/stremio');
     if (!fs.existsSync(stremio)) fs.cpSync(path.join(repository, 'stremio/app'), stremio, {recursive: true});
   }

@@ -12,7 +12,7 @@ if CommandLine.arguments.contains("--self-test") {
         let testParent = FileManager.default.temporaryDirectory.appendingPathComponent("mac2jb-selftest-" + UUID().uuidString)
         let runtime = try BundledRuntime.prepare(sessionParent: testParent)
         defer { try? FileManager.default.removeItem(at: testParent) }
-        let checks: [(String, [String])] = [
+        var checks: [(String, [String])] = [
             ("scripts/install-driver.sh", ["--verify"]),
             ("node", ["--version"]),
             ("mac2jb-send", ["assets/bootstrap.bas", "--dry-run"]),
@@ -33,20 +33,26 @@ if CommandLine.arguments.contains("--self-test") {
                                  "--load-wait-ms", "10", "--run-wait-ms", "10", "--remove-wait-ms", "10"]),
             ("node", ["--check", "scripts/gui-session.cjs"]),
             ("node", ["--check", "scripts/gui-attach.cjs"]),
+            ("node", ["--check", "scripts/convert-elden-ring-save.cjs"]),
             ("node", ["--check", "scripts/rpc-attachment.cjs"]),
             ("node", ["--check", "scripts/host-profiles.cjs"]),
             ("node", ["--check", "scripts/prepare-host-profiles.cjs"]),
             ("node", ["scripts/prepare-host-profiles.cjs", "--check"]),
             ("node", ["scripts/prepare-seedsow-host.cjs", "--check"]),
             ("node", ["integrations/civswitch/verify.cjs", "--runtime"]),
+            ("node", ["scripts/gui-civhomebrew.cjs", "--self-test", runtime.root.path]),
+            ("node", ["scripts/gui-civswitch-moonlight.cjs", "--self-test", runtime.root.path]),
             ("node", ["--check", "integrations/civswitch/probe.cjs"]),
-            ("node", ["--check", "integrations/civswitch/send-hello.cjs"]),
-            ("node", ["--check", "integrations/civswitch/hello.js"]),
+            ("node", ["--check", "integrations/civswitch/send-payload.cjs"]),
+            ("node", ["--check", "integrations/civswitch/install-persistent.cjs"]),
+            ("node", ["--check", "integrations/civswitch/fs-host.cjs"]),
+            ("node", ["--check", "scripts/prepare-civswitch-savekit.cjs"]),
+            ("node", ["scripts/prepare-civswitch-savekit.cjs", "--check-source"]),
+            ("node", ["--check", "integrations/civswitch/backup-single.js"]),
+            ("node", ["-e", "require(require.resolve('terser', {paths: [process.cwd() + '/vendor/CivSwitch/installer-creator']}))"]),
             ("mac2jb-civswitch-hid", ["--payload", runtime.root.appendingPathComponent("integrations/civswitch/payload.txt").path, "--dry-run"]),
-            ("homebrew/python/bin/python3", ["integrations/civswitch-control-center/verify-source.py"]),
             ("node", ["scripts/gui-savekit.cjs", "--self-test"]),
             ("node", ["scripts/gui-savekit-tools.cjs", "--self-test"]),
-            ("node", ["--check", "scripts/convert-elden-ring-save.cjs"]),
             ("node", ["scripts/check-savekit-research.cjs"]),
             ("node", ["--check", "scripts/usb-controllers.cjs"]),
             ("node", ["scripts/gui-dnswitch.cjs", "--self-test"]),
@@ -54,6 +60,7 @@ if CommandLine.arguments.contains("--self-test") {
             ("node", ["scripts/gui-bundled-browser-probes.cjs", "--self-test"]),
             ("node", ["scripts/check-webkit-research.cjs"]),
             ("homebrew/python/bin/python3", ["integrations/nsp-box/cli.py", "--self-test"]),
+            ("node", ["scripts/gui-nxformat.cjs", "--self-test", runtime.root.path]),
             ("node", ["scripts/gui-nup.cjs", "--self-test", runtime.root.path]),
             ("node", ["--check", "scripts/gui-keyboard.cjs"]),
             ("node", ["scripts/gui-keyboard.cjs", "--self-test"]),
@@ -69,6 +76,12 @@ if CommandLine.arguments.contains("--self-test") {
             ("node", ["scripts/gui-ouncecake.cjs", "--self-test"]),
             ("node", ["scripts/gui-host.cjs", "--self-test"])
         ]
+        if AppBuildIdentity.isTestBuild {
+            checks += [
+                ("node", ["--check", "integrations/civswitch/send-hello.cjs"]),
+                ("node", ["--check", "integrations/civswitch/hello.js"])
+            ]
+        }
         for (tool, arguments) in checks {
             let task = Process()
             task.executableURL = tool.hasSuffix(".sh") ? URL(fileURLWithPath: "/bin/bash") : runtime.root.appendingPathComponent(tool)
@@ -82,13 +95,12 @@ if CommandLine.arguments.contains("--self-test") {
             }
         }
         try FileManager.default.removeItem(at: runtime.root)
-        for host in HostProfile.allCases where host != .cellenseres {
+        for host in HostProfile.allCases where host != .defaultHost {
             let selected = try BundledRuntime.prepare(sessionParent: testParent, host: host)
             guard selected.host == host else {
                 throw BundledRuntime.RuntimeError.invalid("The prepared host does not match \(host.label).")
             }
-            let hostEntry = host == .izmysh
-                ? "vendor/IZ2S-Platform/engines/izmysh/server/host.cjs" : "vendor/ns2jb/run.cjs"
+            let hostEntry = "vendor/ns2jb/run.cjs"
             for (tool, arguments) in [
                 ("node", ["scripts/prepare-host-profiles.cjs", "--check"]),
                 ("node", ["--check", hostEntry]),
@@ -114,7 +126,13 @@ if CommandLine.arguments.contains("--self-test") {
     }
 }
 
+func quitMac2jb() {
+    for window in NSApp.windows { window.preventsApplicationTerminationWhenModal = false }
+    NSApp.terminate(nil)
+}
+
 struct Mac2jbApp: App {
+    @NSApplicationDelegateAdaptor(Mac2jbApplicationDelegate.self) private var applicationDelegate
     @StateObject private var model = SessionModel()
     @StateObject private var updater = AppUpdater()
     var body: some Scene {
@@ -128,6 +146,10 @@ struct Mac2jbApp: App {
         .windowStyle(.hiddenTitleBar)
         .commands {
             CommandGroup(replacing: .newItem) {}
+            CommandGroup(replacing: .appTermination) {
+                Button("Quit mac2jb") { quitMac2jb() }
+                    .keyboardShortcut("q")
+            }
             CommandGroup(after: .appInfo) {
                 Button("Setup Guide…") {
                     NSWorkspace.shared.open(URL(string: "https://github.com/Traiver/mac2jb#prerequisites")!)

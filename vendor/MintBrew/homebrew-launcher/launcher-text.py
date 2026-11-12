@@ -8,6 +8,7 @@ from PIL import Image, ImageDraw, ImageFont
 root = Path(__file__).resolve().parent / 'shaders'
 mac2jb = plistlib.loads((Path(__file__).resolve().parents[3] / 'gui/Info.plist').read_bytes())
 version = mac2jb['CFBundleShortVersionString']
+build = mac2jb['CFBundleVersion']
 atlas = Image.new('L', (1024, 2048))
 draw = ImageDraw.Draw(atlas)
 font = os.environ.get('MAC2JB_HBLAUNCHER_FONT') or str(Path(__file__).resolve().parents[3] / 'homebrew/fonts/DejaVuSans.ttf')
@@ -23,7 +24,7 @@ labels = [
     ('CLOSE', 'Press B to return', 18),
     ('BUTTON_A', 'A', 16),
     ('BUTTON_B', 'B', 16),
-    ('VERSION', f'mac2jb v{version}', 16),
+    ('VERSION', f'mac2jb v{version} · Build {build}', 16),
 
 ]
 labels += [(f'DIGIT{i}', str(i), 34) for i in range(10)]
@@ -44,6 +45,7 @@ layout = '\n'.join(header) + '\n'
 (root / 'launcher-text.glsl').write_text(layout)
 (root / 'launcher-text.json').write_text(json.dumps({
     'mac2jbVersion': version,
+    'mac2jbBuild': build,
     'atlasSha256': hashlib.sha256(bitmap).hexdigest(),
     'layoutSha256': hashlib.sha256(layout.encode()).hexdigest(),
 }, sort_keys=True) + '\n')

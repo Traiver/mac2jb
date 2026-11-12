@@ -3,12 +3,6 @@ import Combine
 import Darwin
 import Foundation
 
-struct IZlauncherModule: Decodable, Identifiable, Equatable {
-    let id: String
-    let name: String
-    let version: String
-    let description: String
-}
 struct RPCDiscoveryCandidate: Decodable, Identifiable, Sendable {
     let path: String
     let description: String
@@ -38,48 +32,53 @@ struct SaveKitArchiveEntry: Decodable, Identifiable {
 }
 
 enum HomebrewAppID: Equatable {
-    case mintBrew, nativeHBLauncher, izlauncher, custom
+    case mintBrew, nativeHBLauncher, ounceCake, custom, modloader
 
     var title: String {
         switch self {
         case .mintBrew: return "MistBrew"
         case .nativeHBLauncher: return "HBLauncher"
-        case .izlauncher: return "IZlauncher"
+        case .ounceCake: return "OunceCake"
         case .custom: return "Custom homebrew"
+        case .modloader: return "Modloader"
         }
     }
 }
 
 enum ArtemisSaveGame: String {
-    case seedsow, nora
+    case seedsow, nora, nora1, hamidashi, balatro, gravcirc
 
     var title: String {
         switch self {
         case .seedsow: return "Seedsow Lullaby"
         case .nora: return "Nora Princess 2"
+        case .nora1: return "Nora, Princess and Stray Cat HD"
+        case .hamidashi: return "Hamidashi Creative"
+        case .balatro: return "Balatro"
+        case .gravcirc: return "Gravity Circuit"
         }
     }
 
     var launcher: String {
         switch self {
         case .seedsow: return "seedsowhax"
-        case .nora: return "norahax"
+        case .nora: return "nora2hax"
+        case .nora1: return "norahax"
+        case .hamidashi: return "hamihax"
+        case .balatro: return "Balatro"
+        case .gravcirc: return "Gravity Circuit RCE"
         }
     }
 }
 
-struct IZlauncherPanelAddress {
-    static func parse(_ raw: String) -> URL? {
-        guard raw.utf8.count < 200, let parts = URLComponents(string: raw),
-              parts.scheme == "http", parts.host == "127.0.0.1",
-              parts.user == nil, parts.password == nil,
-              let port = parts.port, (1024...65535).contains(port),
-              parts.path == "/", parts.query == nil,
-              let fragment = parts.fragment, fragment.utf8.count == 48,
-              fragment.utf8.allSatisfy({ (48...57).contains($0) || (97...102).contains($0) }),
-              let url = parts.url, url.absoluteString == raw else { return nil }
-        return url
-    }
+enum SeedsowEdition: String {
+    case demo, full
+
+    var title: String { self == .full ? "full game" : "demo" }
+}
+
+enum BalatroSaveVariant: String {
+    case upstream, showcase
 }
 
 private struct GUIEvent: Decodable {
@@ -105,11 +104,13 @@ private struct GUIEvent: Decodable {
     let remainingMs: Double?
     let durationMs: Double?
     let watchProgress: StremioWatchProgress?
+    let requestFolder: String?
+    let nonce: String?
     let games: [OunceCakeGame]?
-    let modules: [IZlauncherModule]?
     let host: String?
     let port: Int?
     let httpURL: String?
+    let ftpURL: String?
     let cleanupBlocked: Bool?
     let retrySafe: Bool?
     let safeToContinue: Bool?
@@ -151,7 +152,15 @@ private struct GUIEvent: Decodable {
     @Published private(set) var bootstrapSaveCommandSent = false
     @Published var isEnumerating = false
     @Published var addresses: [NetworkAddress] = []
-    @Published var selectedAddress = ""
+    @Published var selectedAddress = "" {
+        didSet {
+            guard !refreshingNetworkSelection,
+                  let choice = addresses.first(where: { $0.address == selectedAddress }) else { return }
+            preferredNetworkInterface = choice.interface
+            networkDefaults.set(choice.interface, forKey: "preferredNetworkInterface")
+            networkDefaults.set(choice.address, forKey: "preferredNetworkAddress")
+        }
+    }
     @Published private(set) var activeAddress = ""
     @Published private(set) var networkNotice: String?
     @Published var controller = "auto"
@@ -167,10 +176,24 @@ private struct GUIEvent: Decodable {
     @Published private(set) var seedsowSkipMessage = ""
     @Published private(set) var seedsowCustomSource = false
     @Published private(set) var activeSaveGame: ArtemisSaveGame?
+    @Published private(set) var activeBalatroVariant: BalatroSaveVariant?
     private var legacySeedsowInstall = false
+    private var seedsowEditorPro = false
+    private var activeSeedsowEdition: SeedsowEdition = .demo
     var installingSeedsowEditorSave: Bool { legacySeedsowInstall }
+    var installingSeedsowEditorPro: Bool { legacySeedsowInstall && seedsowEditorPro }
+    var activeSaveTitle: String {
+        guard let activeSaveGame else { return "Seedsow Lullaby" }
+        return activeSaveGame == .seedsow && !legacySeedsowInstall
+            ? "Seedsow Lullaby \(activeSeedsowEdition.title)" : activeSaveGame.title
+    }
     private var saveInstallName: String {
-        legacySeedsowInstall ? "Seedsow Lua Editor" : (activeSaveGame?.launcher ?? "Artemis launcher")
+        if legacySeedsowInstall { return seedsowEditorPro ? "Seedsow Lua Editor Pro" : "Seedsow Lua Editor" }
+        if activeSaveGame == .balatro {
+            return activeBalatroVariant == .showcase ? "Balatro cpypwn showcase" : "Balatro RCE"
+        }
+        if activeSaveGame == .seedsow { return "seedsowhax (\(activeSeedsowEdition.title))" }
+        return activeSaveGame?.launcher ?? "Artemis launcher"
     }
     @Published private(set) var savekitBusy = false
     @Published private(set) var savekitSaveOperationUsed = false
@@ -190,14 +213,9 @@ private struct GUIEvent: Decodable {
     @Published private(set) var savekitChoiceFinished = false
     @Published private(set) var savekitReturnPending = false
     @Published private(set) var savekitReturnBlocked = false
-    @Published var sdConsoleAddress = ""
-    @Published private(set) var sdBrowserURL: URL?
-    @Published private(set) var sdFTPURL = ""
-    @Published private(set) var sdBusy = false
-    @Published private(set) var sdRunning = false
-    @Published private(set) var sdMessage = "Hold RPC to browse the Switch SD card read-only"
-    @Published private(set) var selectedHost: HostProfile = .cellenseres
-    @Published private(set) var activeHost: HostProfile = .cellenseres
+    @Published private(set) var selectedHost: HostProfile = .defaultHost
+    @Published private(set) var activeHost: HostProfile = .defaultHost
+    @Published private(set) var attachedRPCProfileId: String?
     @Published var existingRPCRunPath = ""
     @Published private(set) var rpcDiscoveryRunning = false
     @Published private(set) var rpcDiscoveredSessions: [RPCDiscoveryCandidate] = []
@@ -209,12 +227,15 @@ private struct GUIEvent: Decodable {
     @Published private(set) var activeEdition: SmileBASICEdition = .full
     @Published var selectedEdition: SmileBASICEdition = .full
     var fullInstall: Bool { runMode == .bootstrapOnly }
-    @Published var keyDelayMs = 10
-    @Published var enumerationTimeoutSeconds = 4
-    @Published var loadWaitMs = 1000
-    @Published var runWaitMs = 0
-    @Published var removeWaitMs = 0
-    @Published var loadConfirmWaitMs = 0
+    @Published var keyDelayMs = 10 { didSet { saveTimingPreferences() } }
+    @Published var enumerationTimeoutSeconds = 4 { didSet { saveTimingPreferences() } }
+    @Published var loadWaitMs = 1000 { didSet { saveTimingPreferences() } }
+    @Published var runWaitMs = 0 { didSet { saveTimingPreferences() } }
+    @Published var removeWaitMs = 0 { didSet { saveTimingPreferences() } }
+    @Published var loadConfirmWaitMs = 0 { didSet { saveTimingPreferences() } }
+    @Published var keyHoldMs = 0 { didSet { saveTimingPreferences() } }
+    @Published var enterSettleMs = 0 { didSet { saveTimingPreferences() } }
+    @Published var pollInterval = 10 { didSet { saveTimingPreferences() } }
     var effectiveLoadConfirmWaitMs: Int { activeEdition.requiresLoadConfirmation ? loadConfirmWaitMs : 0 }
     @Published var driverStatus = "Checking the USB gadget driver…"
     @Published var driverInstalled = false
@@ -233,23 +254,19 @@ private struct GUIEvent: Decodable {
     @Published private(set) var homebrewMessage = ""
     @Published private(set) var homebrewFolder: URL?
     @Published private(set) var homebrewApp: HomebrewAppID = .mintBrew
+    @Published private(set) var modloaderInstallReady = false
     @Published private(set) var homebrewStopPending = false
     var homebrewTitle: String { homebrewApp.title }
-    @Published private(set) var izlauncherPanelURL: URL?
-    @Published private(set) var izlauncherPanelMessage = ""
-    @Published private(set) var izlauncherPanelChecking = false
     @Published private(set) var pendingHomebrewAction: String?
+    private var modloaderUsedMacFolder = false
     private var pendingCustomConsoleAddress: String?
-    @Published private(set) var izlauncherModules: [IZlauncherModule] = []
-    @Published private(set) var izlauncherCatalogLoaded = false
-    @Published private(set) var selectedIZlauncherModuleIDs = Set<String>()
-    @Published private(set) var izlauncherModuleMessage = "Hold RPC to list compatible modules."
     @Published var stremioAddonURL = ""
     @Published var stremioQuality: StremioQuality = .saved() {
         didSet { UserDefaults.standard.set(stremioQuality.rawValue, forKey: StremioQuality.preferenceKey) }
     }
     @Published private(set) var keyboardStatus = "Connect the Switch to use this Mac keyboard."
     @Published var keyboardText = ""
+    @Published var keyboardTextAutoIndent = true
     @Published private(set) var keyboardTextSending = false
     @Published private(set) var keyboardTextSent = 0
     @Published private(set) var keyboardTextTotal = 0
@@ -257,6 +274,8 @@ private struct GUIEvent: Decodable {
     @Published var ounceCakeConsoleAddress = ""
     @Published var selectedOunceCakeGame = ""
     @Published private(set) var ounceCakeSession = OunceCakeSession()
+    @Published private(set) var ounceCakeFTPURL: String?
+    private var ounceCakeFTPRequested = false
     var accountProgressHandler: ((StremioWatchProgress) -> Void)?
     var stremioToolsAvailable: Bool {
         FileManager.default.isExecutableFile(atPath: "/Applications/Stremio.app/Contents/MacOS/ffmpeg") &&
@@ -287,6 +306,8 @@ private struct GUIEvent: Decodable {
     private var hostCompleted = false
     private var generation = UUID()
     private var runFolder: URL?
+    @Published var ounceCakeImport: OunceCakeImportContext?
+    @Published private(set) var webSaveImportID: String?
     private var sessionLog: FileHandle?
     private var hostSessionLog: FileHandle?
     private var usbSessionLog: FileHandle?
@@ -298,20 +319,71 @@ private struct GUIEvent: Decodable {
     private var bootstrapTimer: Timer?
     private var hasEnumeratedSuccessfully = false
     private let addressProvider: () -> [NetworkAddress]
+    private let networkDefaults: UserDefaults
+    private var preferredNetworkInterface: String?
+    private var refreshingNetworkSelection = false
+    private let timingPreferences: UserDefaults
+    private var restoringTimingPreferences = false
+    private static let timingPreferenceKey = "usbTimingSettings"
     private var networkRefreshTimer: Timer?
     private var exploitLogRefreshDate = Date.distantPast
     private var hostReadyReceived = false
     private var hasHIDEvidence = false
     private var preflightNetworkFailureHandled = false
 
-    init(addressProvider: @escaping () -> [NetworkAddress] = { NetworkSelection.localAddresses() }, runtime: BundledRuntime? = nil, edition: SmileBASICEdition? = nil) {
+    init(addressProvider: @escaping () -> [NetworkAddress] = { NetworkSelection.localAddresses() }, runtime: BundledRuntime? = nil, edition: SmileBASICEdition? = nil, timingDefaults: UserDefaults = .standard, networkDefaults: UserDefaults = .standard) {
         self.addressProvider = addressProvider
+        self.networkDefaults = networkDefaults
+        preferredNetworkInterface = networkDefaults.string(forKey: "preferredNetworkInterface")
+        selectedAddress = networkDefaults.string(forKey: "preferredNetworkAddress") ?? ""
+        self.timingPreferences = timingDefaults
         self.runtime = runtime
-        selectedHost = runtime?.host ?? HostProfile.saved()
+        selectedHost = runtime?.host ?? .defaultHost
         activeHost = selectedHost
         if !selectedHost.supportsHeldRPC { runMode = .exploitOnly }
         if let edition { activeEdition = edition; selectedEdition = edition }
         workflowProgress.selectMode(fullInstall: false)
+        restoreTimingPreferences()
+    }
+
+    private func saveTimingPreferences() {
+        guard !restoringTimingPreferences else { return }
+        timingPreferences.set([
+            "keyDelayMs": keyDelayMs, "keyHoldMs": keyHoldMs, "enterSettleMs": enterSettleMs,
+            "pollInterval": pollInterval, "enumerationTimeoutSeconds": enumerationTimeoutSeconds,
+            "loadConfirmWaitMs": loadConfirmWaitMs, "loadWaitMs": loadWaitMs,
+            "runWaitMs": runWaitMs, "removeWaitMs": removeWaitMs
+        ], forKey: Self.timingPreferenceKey)
+    }
+
+    private func restoreTimingPreferences() {
+        let saved = timingPreferences.dictionary(forKey: Self.timingPreferenceKey) ?? [:]
+        func value(_ key: String, _ fallback: Int, _ range: ClosedRange<Int>) -> Int {
+            guard let number = saved[key] as? NSNumber,
+                  number.doubleValue == Double(number.intValue), range.contains(number.intValue) else { return fallback }
+            return number.intValue
+        }
+        restoringTimingPreferences = true
+        keyDelayMs = value("keyDelayMs", 10, 1...2000)
+        keyHoldMs = value("keyHoldMs", 0, 0...2000)
+        enterSettleMs = value("enterSettleMs", 0, 0...2000)
+        pollInterval = value("pollInterval", 10, 1...16)
+        enumerationTimeoutSeconds = value("enumerationTimeoutSeconds", 4, 1...120)
+        loadConfirmWaitMs = value("loadConfirmWaitMs", 0, 0...120000)
+        loadWaitMs = value("loadWaitMs", 1000, 0...120000)
+        runWaitMs = value("runWaitMs", 0, 0...120000)
+        removeWaitMs = value("removeWaitMs", 0, 0...120000)
+        restoringTimingPreferences = false
+    }
+
+    func useStockTiming() {
+        keyDelayMs = 10; keyHoldMs = 0; enterSettleMs = 0; pollInterval = 10
+        enumerationTimeoutSeconds = 4
+        loadConfirmWaitMs = 0; loadWaitMs = 1000; runWaitMs = 0; removeWaitMs = 0
+    }
+
+    func useExperimentalTypingTiming() {
+        pollInterval = 6; keyHoldMs = 10; keyDelayMs = 5; enterSettleMs = 100
     }
 
     deinit { networkRefreshTimer?.invalidate() }
@@ -359,7 +431,9 @@ private struct GUIEvent: Decodable {
         !driverSetupRunning && runtime != nil
     }
     private var typingSettingsValid: Bool {
-        (1...2000).contains(keyDelayMs) && (1...120).contains(enumerationTimeoutSeconds) &&
+        (1...2000).contains(keyDelayMs) && (0...2000).contains(keyHoldMs) &&
+        (0...2000).contains(enterSettleMs) && (1...16).contains(pollInterval) &&
+        (1...120).contains(enumerationTimeoutSeconds) &&
         [loadWaitMs, runWaitMs, removeWaitMs, effectiveLoadConfirmWaitMs].allSatisfy { (0...120000).contains($0) }
     }
     func canStartCommandsOnly(commands: [PostBootstrapCommand] = [.load, .run, .remove], startCommand: String? = nil, startPrefix: Bool = false) -> Bool {
@@ -379,6 +453,12 @@ private struct GUIEvent: Decodable {
         runtime != nil && driverLoaded && typingSettingsValid && !hasLiveWorkers && !driverSetupRunning
     }
     var isAttachedRPCSession: Bool { activeRunMode == .existingRPC }
+    var isAttachedCivSwitchFS: Bool { isAttachedRPCSession && attachedRPCProfileId == "civswitch-fs" }
+    var isAttachedArtemisFS: Bool { isAttachedRPCSession && attachedRPCProfileId == "artemis-seedsow" }
+    var isAttachedFilesystemFS: Bool { isAttachedCivSwitchFS || isAttachedArtemisFS }
+    var attachedFilesystemGameName: String {
+        isAttachedArtemisFS ? "Seedsow Lullaby" : isAttachedCivSwitchFS ? "Civilization VII" : "SmileBASIC"
+    }
     var canChangeHost: Bool {
         [.ready, .failed, .cancelled].contains(phase) && !preparing && !hasLiveWorkers && !driverSetupRunning &&
         !rpcDiscoveryRunning && !sessionCleanupRunning
@@ -423,27 +503,37 @@ private struct GUIEvent: Decodable {
         hostProcess?.isRunning == true && hostInput != nil && runFolder != nil &&
         !savekitBusy && (!savekitSaveOperationUsed || savekitChoiceFinished) &&
         (!seedsowInstallStarted || seedsowInstallCompleted) && !savekitChoicePending &&
-        (!savekitChoiceStarted || savekitChoiceFinished) && !sdBusy && !sdRunning
+        (!savekitChoiceStarted || savekitChoiceFinished)
     }
+    var canLaunchMintBrew: Bool { canLaunchHomebrew && !isAttachedFilesystemFS }
     var canStopCurrentHomebrew: Bool {
-        postRun.canStopHomebrew && !homebrewStopPending && hostProcess?.isRunning == true && hostInput != nil
+        webSaveImportID == nil && homebrewApp != .modloader && postRun.canStopHomebrew && !homebrewStopPending &&
+        hostProcess?.isRunning == true && hostInput != nil
+    }
+    var canLaunchModloader: Bool {
+        canLaunchHomebrew && (isAttachedCivSwitchFS || !isAttachedRPCSession && activeHost.supportsModloader)
     }
     var canLaunchNativeHBLauncher: Bool {
-        canLaunchHomebrew && activeHost.supportsNativeHBLauncher && nativeHBLauncherRuntimeAvailable
+        canLaunchHomebrew && !isAttachedFilesystemFS &&
+        activeHost.supportsNativeHBLauncher && nativeHBLauncherRuntimeAvailable
     }
     var canDumpSystemCode: Bool {
-        activeRunMode != .seedsowSave && activeSessionSupportsHomebrew && postRun.canDumpSystemCode &&
-        hostProcess?.isRunning == true && hostInput != nil && runFolder != nil && !sdBusy && !sdRunning
+        webSaveImportID == nil && activeRunMode != .seedsowSave && !(homebrewApp == .modloader && postRun.homebrewAttempted) &&
+        activeSessionSupportsHomebrew && postRun.canDumpSystemCode &&
+        hostProcess?.isRunning == true && hostInput != nil && runFolder != nil &&
+        pendingHomebrewAction == nil
     }
     var saveKitToolsAvailableInRun: Bool {
         activeRunMode == .savekitTools ||
         activeRunMode == .hostOnlyHeld && activeHost.supportsSaveKit ||
-        activeRunMode == .seedsowSave && (seedsowInstallCompleted || savekitChoiceStarted)
+        activeRunMode == .seedsowSave && (seedsowInstallCompleted || savekitChoiceStarted) ||
+        isAttachedFilesystemFS
     }
     var canUseSaveKitTools: Bool {
         saveKitToolsAvailableInRun && !savekitChoiceFinished && phase == .rpcHeld && postRun.stage == .held &&
         postRun.heldConfirmed && hostProcess?.isRunning == true && hostInput != nil &&
-        runFolder != nil && !postRun.homebrewAttempted && !savekitBusy && !sdBusy && !sdRunning
+        runFolder != nil && !postRun.homebrewAttempted && pendingHomebrewAction == nil &&
+        !savekitBusy
     }
     var canFinishSaveKit: Bool {
         (savekitChoiceStarted || savekitSaveOperationUsed) && !savekitChoiceFinished &&
@@ -451,31 +541,29 @@ private struct GUIEvent: Decodable {
     }
     var canOpenAnotherSave: Bool { canUseSaveKitTools && !savekitReturnBlocked }
     var canInstallSeedsowSave: Bool {
-        (activeRunMode == .seedsowSave || activeRunMode == .hostOnlyHeld && activeHost.supportsSaveKit) &&
+        (activeRunMode == .seedsowSave || activeRunMode == .hostOnlyHeld && activeHost.supportsSaveKit ||
+         isAttachedFilesystemFS) &&
         phase == .rpcHeld && postRun.heldConfirmed &&
         !seedsowInstallStarted && !savekitChoicePending &&
         (!savekitChoiceStarted || savekitChoiceFinished) &&
-        !postRun.homebrewAttempted && !savekitBusy && !sdBusy && !sdRunning &&
+        !postRun.homebrewAttempted && pendingHomebrewAction == nil &&
+        !savekitBusy &&
         hostProcess?.isRunning == true && hostInput != nil && runFolder != nil
     }
     var canInstallArtemisSave: Bool { canInstallSeedsowSave }
+    var canInstallSeedsowTargetSave: Bool { canInstallSeedsowSave && !isAttachedArtemisFS }
+    var canInstallBalatroSave: Bool { canInstallSeedsowSave }
+    var canInstallGravCircSave: Bool { canInstallSeedsowSave }
     var canStartSaveKit: Bool {
-        (activeRunMode == .seedsowSave || activeRunMode == .hostOnlyHeld && activeHost.supportsSaveKit) &&
+        (activeRunMode == .seedsowSave || activeRunMode == .hostOnlyHeld && activeHost.supportsSaveKit ||
+         isAttachedFilesystemFS) &&
         phase == .rpcHeld && postRun.heldConfirmed &&
         !savekitChoicePending && (!savekitChoiceStarted || savekitChoiceFinished) &&
         !seedsowInstallStarted &&
-        !postRun.homebrewAttempted && !savekitBusy && !sdBusy && !sdRunning &&
+        !postRun.homebrewAttempted && pendingHomebrewAction == nil &&
+        !savekitBusy &&
         hostProcess?.isRunning == true && hostInput != nil && runFolder != nil
     }
-    var canStartSDBrowser: Bool {
-        phase == .rpcHeld && postRun.heldConfirmed && !isAttachedRPCSession &&
-        !postRun.homebrewAttempted && !postRun.dumpInProgress && !seedsowInstallStarted &&
-        !savekitChoicePending && !savekitChoiceStarted &&
-        !savekitBusy && !savekitSaveOperationUsed && !sdBusy && !sdRunning &&
-        Self.isIPv4(sdConsoleAddress) && hostProcess?.isRunning == true &&
-        hostInput != nil && runFolder != nil
-    }
-    var canStopSDBrowser: Bool { sdBusy || sdRunning }
     private var nativeHBLauncherRuntimeAvailable: Bool {
         guard let root = runtime?.root else { return false }
         let launcher = root.appendingPathComponent("integrations/mintbrew-native/upstream/launcher/build/report.json")
@@ -486,27 +574,12 @@ private struct GUIEvent: Decodable {
               let allowed = value["allowed"] as? [String] else { return false }
         return allowed.contains("native-hblauncher")
     }
-    private var izlauncherRuntimeAvailable: Bool {
-        guard let root = runtime?.root else { return false }
-        let marker = root.appendingPathComponent("packaging/runtime-homebrew.json")
-        guard FileManager.default.fileExists(atPath: marker.path) else { return true }
-        guard let data = try? Data(contentsOf: marker),
-              let value = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let allowed = value["allowed"] as? [String] else { return false }
-        return allowed.contains("izlauncher")
-    }
-    var canLaunchIZlauncher: Bool { canLaunchHomebrew && izlauncherRuntimeAvailable }
-    var canLoadIZlauncherModules: Bool {
-        phase == .homebrewRunning && homebrewApp == .izlauncher &&
-        hostProcess?.isRunning == true && hostInput != nil && !selectedIZlauncherModuleIDs.isEmpty
-    }
-    var canOpenIZlauncherPanel: Bool {
-        phase == .homebrewRunning && homebrewApp == .izlauncher && izlauncherPanelURL != nil &&
-        hostProcess?.isRunning == true && !izlauncherPanelChecking
-    }
     var canSelectOunceCakeGame: Bool {
         postRun.canSelectHomebrew && ounceCakeSession.stage == .choosing &&
         ounceCakeSession.games.contains { $0.titleId == selectedOunceCakeGame } && hostProcess?.isRunning == true
+    }
+    var canLaunchOunceCake: Bool {
+        canLaunchHomebrew && OunceCakeSession.validConsoleAddress(ounceCakeConsoleAddress) != nil
     }
     var canReturnToStart: Bool {
         ([.verified, .commandsSent, .rpcDetached].contains(phase) ||
@@ -521,7 +594,6 @@ private struct GUIEvent: Decodable {
         progress = nil; progressLabel = ""; error = nil
         seedsowInstallStarted = false
         seedsowUsers = []
-        izlauncherPanelURL = nil; izlauncherPanelMessage = ""; izlauncherPanelChecking = false
     }
 
     func selectRunMode(_ mode: SessionRunMode) {
@@ -536,7 +608,6 @@ private struct GUIEvent: Decodable {
         guard canChangeHost, host != selectedHost else { return }
         isInitialPreparation = false
         selectedHost = host
-        UserDefaults.standard.set(host.rawValue, forKey: HostProfile.preferenceKey)
         if !host.supportsDemo { selectedEdition = .full }
         runMode = host.supportsHeldRPC ? .heldRPC : .exploitOnly
         activeRunMode = runMode; activeHost = host; attachedRunDirectory = nil
@@ -572,12 +643,23 @@ private struct GUIEvent: Decodable {
                 let override = ProcessInfo.processInfo.environment["MAC2JB_SESSION_PARENT"].flatMap {
                     $0.isEmpty ? nil : URL(fileURLWithPath: $0, isDirectory: true)
                 }
-                let prepared = try await Task.detached(priority: .userInitiated) {
-                    try BundledRuntime.prepare(sessionParent: override, host: host)
+                let (prepared, cleanupMessage) = try await Task.detached(priority: .userInitiated) {
+                    let runtime = try BundledRuntime.prepare(sessionParent: override, host: host)
+                    var message: String?
+                    if override == nil {
+                        do {
+                            let count = try SessionDataCleanup.pruneOldSessions(in: runtime.root.deletingLastPathComponent())
+                            if count > 0 { message = "Removed \(count) old session folder(s)." }
+                        } catch {
+                            message = "Could not finish removing old sessions: \(error.localizedDescription)"
+                        }
+                    }
+                    return (runtime, message)
                 }.value
                 runtime = prepared
                 openSessionLog(in: prepared.root)
                 append("\(host.label) offline runtime prepared. Session files are private to your account.")
+                if let cleanupMessage { append(cleanupMessage) }
                 // Keep a successfully prepared runtime available for retry,
                 // but never undo a cancellation while extraction was running.
                 guard phase == .preparing else { return }
@@ -625,8 +707,14 @@ private struct GUIEvent: Decodable {
 
     @discardableResult private func refreshNetworkAddresses() -> NetworkSelection.Refresh {
         let previous = selectedAddress
-        let refresh = NetworkSelection.refresh(selected: previous, previous: addresses, available: addressProvider())
+        let refresh = NetworkSelection.refresh(selected: previous, previous: addresses, available: addressProvider(), lockedInterface: preferredNetworkInterface)
+        refreshingNetworkSelection = true
         addresses = refresh.addresses; selectedAddress = refresh.selected
+        refreshingNetworkSelection = false
+        if let preferredNetworkInterface, !refresh.selected.isEmpty {
+            networkDefaults.set(preferredNetworkInterface, forKey: "preferredNetworkInterface")
+            networkDefaults.set(refresh.selected, forKey: "preferredNetworkAddress")
+        }
         if refresh.changed, !previous.isEmpty {
             networkNotice = "The Mac’s network address changed. Review the current address, confirm the Switch is ready, then press Start again."
         }
@@ -684,6 +772,7 @@ private struct GUIEvent: Decodable {
         activeRunMode = runMode
         activeHost = selectedHost
         attachedRunDirectory = nil
+        attachedRPCProfileId = nil
         activeCommandSelection = activeRunMode == .commandsOnly ? (commandSelection ?? .standard) : nil
         activeEdition = selectedEdition
         activeAddress = activeRunMode.requiresNetworkAddress ? selectedAddress : ""
@@ -706,7 +795,8 @@ private struct GUIEvent: Decodable {
         seedsowUsers = []; selectedSeedsowUser = ""; seedsowBackupFolder = nil
         seedsowInstallStarted = false; seedsowInstallCompleted = false
         seedsowInstallSkipped = false; seedsowSkipMessage = ""; seedsowCustomSource = false
-        activeSaveGame = nil; legacySeedsowInstall = false
+        activeSaveGame = nil; activeBalatroVariant = nil; legacySeedsowInstall = false
+        seedsowEditorPro = false; activeSeedsowEdition = .demo
         savekitBusy = false; savekitSaveOperationUsed = false; savekitPendingOperation = false
         savekitMessage = "Waiting for verified held RPC"
         savekitAccounts = []; savekitTitles = []; savekitTitleNames = [:]
@@ -714,16 +804,13 @@ private struct GUIEvent: Decodable {
         savekitInventoryFolder = nil; savekitListingTruncated = false; savekitBackupFolder = nil
         savekitChoicePending = false; savekitChoiceStarted = false
         savekitChoiceFinished = false; savekitReturnPending = false; savekitReturnBlocked = false
-        sdConsoleAddress = ""; sdBrowserURL = nil; sdFTPURL = ""
-        sdBusy = false; sdRunning = false
-        sdMessage = "Hold RPC to browse the Switch SD card read-only"
         homebrewMessage = ""; homebrewFolder = nil; homebrewApp = .mintBrew; pendingHomebrewAction = nil
+        modloaderInstallReady = false
+        modloaderUsedMacFolder = false
         homebrewStopPending = false
         pendingCustomConsoleAddress = nil
-        izlauncherPanelURL = nil; izlauncherPanelMessage = ""; izlauncherPanelChecking = false
-        izlauncherModules = []; izlauncherCatalogLoaded = false; selectedIZlauncherModuleIDs = []
-        izlauncherModuleMessage = "Hold RPC to list compatible modules."
         ounceCakeSession = OunceCakeSession(); selectedOunceCakeGame = ""
+        ounceCakeFTPURL = nil; ounceCakeFTPRequested = false
         startPrefixCompleted = false; keyboardHandoffPending = false; completingStartWithKeyboard = false
         hostOnlyKeyboardRunning = false; hostOnlyKeyboardReady = false; hostOnlyKeyboardUsed = false
         resetKeyboardTextTransfer()
@@ -733,7 +820,7 @@ private struct GUIEvent: Decodable {
         resetBootstrapTiming()
         hostStageLabel = "Waiting for the Switch to connect over the local network"
         hostStageProgress = nil
-        append("\(AppBuildIdentity.diagnosticLabel); mode=\(activeRunMode.rawValue); edition=\(activeEdition.rawValue); controller=\(controller); address=\(activeAddress); keyDelayMs=\(keyDelayMs); enumerationTimeoutSeconds=\(enumerationTimeoutSeconds); loadConfirmWaitMs=\(effectiveLoadConfirmWaitMs); loadWaitMs=\(loadWaitMs); runWaitMs=\(runWaitMs); removeWaitMs=\(removeWaitMs). Starting \(activeRunMode.title).")
+        append("\(AppBuildIdentity.diagnosticLabel); mode=\(activeRunMode.rawValue); edition=\(activeEdition.rawValue); controller=\(controller); address=\(activeAddress); keyDelayMs=\(keyDelayMs); keyHoldMs=\(keyHoldMs); enterSettleMs=\(enterSettleMs); pollInterval=\(pollInterval); enumerationTimeoutSeconds=\(enumerationTimeoutSeconds); loadConfirmWaitMs=\(effectiveLoadConfirmWaitMs); loadWaitMs=\(loadWaitMs); runWaitMs=\(runWaitMs); removeWaitMs=\(removeWaitMs). Starting \(activeRunMode.title).")
     }
 
     func startCommandsOnly(commands: [PostBootstrapCommand] = [.load, .run, .remove], startCommand: String? = nil, startPrefix: Bool = false) {
@@ -761,10 +848,28 @@ private struct GUIEvent: Decodable {
         beginAttempt()
         attachedRunDirectory = directory
         phase = .rpcAttaching; status = "Connecting to the open RPC session"
-        detail = "Keep the original host and SmileBASIC open. Checking the selected session…"
+        detail = "Keep the original host and its console game open. Checking the selected session…"
         launch(arguments: ["attach"], role: "host", root: runtime.root)
         guard hostProcess != nil, phase == .rpcAttaching else { return }
         _ = sendHostControl(["action": "attach", "connection": ["kind": "local", "runDirectory": directory.path]])
+    }
+
+    func attachCivSwitchFSRun(_ path: String) {
+        guard canChangeHost, path.hasPrefix("/") else { return }
+        existingRPCRunPath = path
+        attachExistingRPC()
+        if phase == .rpcAttaching {
+            detail = "Keep Civilization VII and the CivSwitch filesystem host open while connecting."
+        }
+    }
+
+    func attachArtemisFSRun(_ path: String) {
+        guard canChangeHost, path.hasPrefix("/") else { return }
+        existingRPCRunPath = path
+        attachExistingRPC()
+        if phase == .rpcAttaching {
+            detail = "Keep Seedsow Lullaby and the Artemis filesystem host open while connecting."
+        }
     }
 
     func findOpenRPC() {
@@ -908,7 +1013,9 @@ private struct GUIEvent: Decodable {
         let original = keyboardText
         let normalized = original.replacingOccurrences(of: "\r\n", with: "\n")
         do {
-            var data = try JSONSerialization.data(withJSONObject: ["text": normalized, "delayMs": keyDelayMs])
+            var data = try JSONSerialization.data(withJSONObject: [
+                "text": normalized, "delayMs": keyDelayMs, "editorAutoIndent": keyboardTextAutoIndent
+            ])
             data.append(10)
             pendingKeyboardText = original; keyboardTextStarted = false
             keyboardTextSent = 0; keyboardTextTotal = normalized.utf8.count; keyboardTextSending = true
@@ -963,6 +1070,7 @@ private struct GUIEvent: Decodable {
     }
 
     func cancel() {
+        guard webSaveImportID == nil else { return }
         // Quit also calls cancel, so release the assertion even if the phase
         // has already moved to a terminal state.
         if hostProcess == nil { endSessionActivity() }
@@ -980,7 +1088,6 @@ private struct GUIEvent: Decodable {
         status = "Session stopped"
         error = nil
         postRun.stop()
-        izlauncherPanelURL = nil; izlauncherPanelMessage = ""; izlauncherPanelChecking = false
         if ounceCakeSession.hasStarted { ounceCakeSession.stop() }
         append("Stop requested. Only this app’s worker processes are being stopped.")
         appendBootstrapDuration(outcome: "cancelled")
@@ -1002,37 +1109,6 @@ private struct GUIEvent: Decodable {
         if let folder = homebrewFolder ?? runFolder { NSWorkspace.shared.open(folder) }
     }
 
-    func openIZlauncherPanel() {
-        guard canOpenIZlauncherPanel, let url = izlauncherPanelURL,
-              var parts = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return }
-        parts.fragment = nil
-        guard let probeURL = parts.url else { return }
-        var request = URLRequest(url: probeURL)
-        request.cachePolicy = .reloadIgnoringLocalCacheData
-        request.timeoutInterval = 2
-        let expected = generation
-        izlauncherPanelChecking = true
-        izlauncherPanelMessage = "Checking the local control panel…"
-        Task {
-            let reachable: Bool
-            do {
-                let (_, response) = try await URLSession.shared.data(for: request)
-                reachable = (response as? HTTPURLResponse)?.statusCode == 200 &&
-                    response.url?.scheme == "http" && response.url?.host == "127.0.0.1"
-            } catch { reachable = false }
-            guard generation == expected, izlauncherPanelURL == url else { return }
-            izlauncherPanelChecking = false
-            guard canOpenIZlauncherPanel else { return }
-            if !reachable {
-                izlauncherPanelMessage = "The local control panel is no longer responding. Restart its module in IZlauncher."
-            } else if NSWorkspace.shared.open(url) {
-                izlauncherPanelMessage = ""
-            } else {
-                izlauncherPanelMessage = "Could not open the local control panel in your default browser."
-            }
-        }
-    }
-
     private func stremioLaunchOptions(accountAddons: [String], libraryItems: [[String: Any]]) -> [String: Any]? {
         guard accountAddons.count <= 32, libraryItems.count <= 500 else { return nil }
         let value = stremioAddonURL.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1042,7 +1118,7 @@ private struct GUIEvent: Decodable {
     }
 
     func launchMintBrew(accountAddons: [String] = [], libraryItems: [[String: Any]] = []) {
-        guard canLaunchHomebrew,
+        guard canLaunchMintBrew,
               var control = stremioLaunchOptions(accountAddons: accountAddons, libraryItems: libraryItems) else { return }
         control["action"] = "launch-mintbrew"
         guard sendHostControl(control) else { return }
@@ -1061,54 +1137,38 @@ private struct GUIEvent: Decodable {
         presentPostRunState()
     }
 
-    func launchIZlauncher() {
-        guard canLaunchIZlauncher else { return }
-        var control: [String: Any] = ["action": "launch-izlauncher"]
-        if !selectedIZlauncherModuleIDs.isEmpty { control["moduleIds"] = selectedIZlauncherModuleIDs.sorted() }
-        guard sendHostControl(control) else { return }
-        homebrewApp = .izlauncher
-        izlauncherPanelURL = nil; izlauncherPanelMessage = ""; izlauncherPanelChecking = false
-        postRun.launchHomebrew()
-        homebrewMessage = "Starting IZlauncher in the current held session…"
+    func launchOunceCake(ftp: Bool) {
+        guard canLaunchOunceCake,
+              let address = OunceCakeSession.validConsoleAddress(ounceCakeConsoleAddress) else { return }
+        var session = OunceCakeSession()
+        guard session.begin(consoleAddress: address) else { return }
+        var command: [String: Any] = ["action": "launch-ouncecake", "consoleAddress": address]
+        if ftp { command["mode"] = "ftp" }
+        guard sendHostControl(command), postRun.launchHomebrew() else { return }
+        homebrewApp = .ounceCake
+        ounceCakeSession = session
+        ounceCakeFTPRequested = ftp
+        ounceCakeFTPURL = nil
+        selectedOunceCakeGame = ""
+        homebrewMessage = "Reading the game list…"
         presentPostRunState()
     }
 
-    func launchIZlauncher(moduleFolder: URL) {
-        guard canLaunchIZlauncher else { return }
-        var control: [String: Any] = ["action": "launch-izlauncher", "moduleFolderPath": moduleFolder.standardizedFileURL.path]
-        if !selectedIZlauncherModuleIDs.isEmpty { control["moduleIds"] = selectedIZlauncherModuleIDs.sorted() }
-        guard sendHostControl(control) else { return }
-        pendingHomebrewAction = "launch-izlauncher"
-        homebrewApp = .izlauncher
-        izlauncherPanelURL = nil; izlauncherPanelMessage = ""; izlauncherPanelChecking = false
-        homebrewMessage = "Checking the selected module folder…"
-        status = "Checking IZlauncher module"
-        detail = "Validating the module for this Mac and the console before opening IZlauncher."
-    }
-
-    func selectIZlauncherModule(_ id: String, selected: Bool) {
-        guard izlauncherCatalogLoaded, izlauncherModules.contains(where: { $0.id == id }),
-              canLaunchIZlauncher || phase == .homebrewRunning && homebrewApp == .izlauncher else { return }
-        if selected {
-            guard selectedIZlauncherModuleIDs.count < 15 || selectedIZlauncherModuleIDs.contains(id) else {
-                izlauncherModuleMessage = "Choose no more than 15 modules in one session."
-                return
-            }
-            selectedIZlauncherModuleIDs.insert(id)
-        }
-        else { selectedIZlauncherModuleIDs.remove(id) }
-    }
-
-    func loadIZlauncherModules() {
-        guard canLoadIZlauncherModules,
-              sendHostControl(["action": "load-izlauncher-modules", "ids": selectedIZlauncherModuleIDs.sorted()]) else { return }
-        izlauncherModuleMessage = "Sending selected modules to IZlauncher…"
-    }
-
-    private func requestIZlauncherModules() {
-        guard izlauncherRuntimeAvailable, phase == .rpcHeld, !izlauncherCatalogLoaded,
-              sendHostControl(["action": "list-izlauncher-modules"]) else { return }
-        izlauncherModuleMessage = "Reading compatible IZlauncher modules…"
+    func installModloader(modsFolder: URL? = nil) {
+        guard canLaunchModloader else { return }
+        var command: [String: Any] = ["action": "modloader-install",
+                                       "source": modsFolder == nil ? "sd" : "mac"]
+        if let modsFolder { command["modsFolder"] = modsFolder.standardizedFileURL.path }
+        guard sendHostControl(command) else { return }
+        modloaderUsedMacFolder = modsFolder != nil
+        homebrewApp = .modloader
+        pendingHomebrewAction = "modloader-install"
+        homebrewMessage = modsFolder == nil ? "Checking mods on the Switch SD card…" : "Checking the selected mods folder…"
+        status = "Checking mod files"
+        detail = modsFolder == nil
+            ? "Reading mods already on the Switch SD card before installing the modloader."
+            : "Checking the selected folder before copying mods to the Switch SD card."
+        progressLabel = homebrewMessage
     }
 
     func launchCustomHomebrew(folder: URL) {
@@ -1165,11 +1225,6 @@ private struct GUIEvent: Decodable {
     func refreshExploitLogs() {
         guard Date().timeIntervalSince(exploitLogRefreshDate) >= 0.4 else { return }
         exploitLogRefreshDate = Date()
-        if activeHost == .izmysh {
-            pipelineLog = "The IZMYSH host does not produce pipeline.json. See the Host log for its progress."
-            acquisitionLog = "The IZMYSH host does not produce acquisition.log. See the Host log for its progress."
-            return
-        }
         guard let run = runFolder ?? attachedRunDirectory else { return }
         let directory = run.appendingPathComponent("switch2", isDirectory: true)
         pipelineLog = readExploitLog(directory.appendingPathComponent("pipeline.json"), limit: 1024 * 1024,
@@ -1209,11 +1264,12 @@ private struct GUIEvent: Decodable {
         progressLabel = homebrewMessage
     }
 
-    func copyOunceCakeAddress() {
+    func copyOunceCakeAddress(ftp: Bool = false) {
         guard postRun.stage == .held, postRun.homebrewStage == .running,
               let endpoint = ounceCakeSession.endpoint else { return }
+        guard let address = ftp ? ounceCakeFTPURL : endpoint.address else { return }
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(endpoint.address, forType: .string)
+        NSPasteboard.general.setString(address, forType: .string)
     }
 
     func copyRPCCommand() {
@@ -1223,10 +1279,9 @@ private struct GUIEvent: Decodable {
     }
 
     func finishPostRun() {
-        guard !savekitBusy, postRun.canFinish,
+        guard webSaveImportID == nil, !savekitBusy, postRun.canFinish,
               sendHostControl(["action": "finish"]) else { return }
         postRun.finish()
-        izlauncherPanelURL = nil; izlauncherPanelMessage = ""; izlauncherPanelChecking = false
         presentPostRunState()
     }
 
@@ -1239,12 +1294,13 @@ private struct GUIEvent: Decodable {
         guard canDumpSystemCode, sendHostControl(["action": "dump-system-code"]),
               postRun.requestDump() else { return }
         status = postRun.homebrewStage == .running ? "Stopping \(homebrewTitle) for the system-code dump" : "Preparing system-code dump"
-        detail = "Keep SmileBASIC and the held RPC session open. The dump will start after the current app stops safely."
+        detail = "Keep \(attachedFilesystemGameName) and the held RPC session open. The dump will start after the current app stops safely."
         progress = nil; progressLabel = "Preparing the system-code dump"
     }
 
-    func installSeedsowSave(source: URL? = nil) {
-        guard canInstallSeedsowSave else { return }
+    func installSeedsowSave(source: URL? = nil, pro: Bool = false) {
+        guard canInstallSeedsowTargetSave else { return }
+        guard !pro || source == nil else { return }
         if let source {
             guard source.isFileURL, source.path.hasPrefix("/"),
                   source.path.utf8.count <= 4096,
@@ -1253,6 +1309,7 @@ private struct GUIEvent: Decodable {
         }
         var control: [String: Any] = ["action": "install-seedsow-save"]
         if let source { control["sourcePath"] = source.path }
+        if pro { control["variant"] = "pro" }
         guard sendHostControl(control) else { return }
         seedsowInstallStarted = true
         seedsowInstallCompleted = false
@@ -1261,17 +1318,45 @@ private struct GUIEvent: Decodable {
         seedsowUsers = []
         seedsowCustomSource = source != nil
         activeSaveGame = .seedsow
+        activeBalatroVariant = nil
         legacySeedsowInstall = true
+        seedsowEditorPro = pro
+        activeSeedsowEdition = .demo
         phase = .installingSave
-        status = "Preparing the Seedsow Lua Editor save"
-        detail = "Keep the demo fully closed and SmileBASIC open. The original save will be backed up before it is changed."
+        status = pro ? "Preparing the Seedsow Lua Editor Pro save" : "Preparing the Seedsow Lua Editor save"
+        detail = "Keep the demo fully closed and \(attachedFilesystemGameName) open. The original save will be backed up before it is changed."
         progress = nil; progressLabel = "Checking the selected save"
     }
 
-    func installArtemisSave(game: ArtemisSaveGame) {
-        guard canInstallArtemisSave,
-              sendHostControl(["action": "install-artemis-save", "game": game.rawValue]) else { return }
+    func installArtemisSave(game: ArtemisSaveGame, seedsowEdition: SeedsowEdition = .demo) {
+        guard [ArtemisSaveGame.seedsow, .nora, .nora1, .hamidashi].contains(game),
+              canInstallArtemisSave, game != .seedsow || !isAttachedArtemisFS else { return }
+        var control: [String: Any] = ["action": "install-artemis-save", "game": game.rawValue]
+        if game == .seedsow { control["variant"] = seedsowEdition.rawValue }
+        guard sendHostControl(control) else { return }
         activeSaveGame = game
+        activeBalatroVariant = nil
+        legacySeedsowInstall = false
+        seedsowEditorPro = false
+        activeSeedsowEdition = game == .seedsow ? seedsowEdition : .demo
+        seedsowInstallStarted = true
+        seedsowInstallCompleted = false
+        seedsowInstallSkipped = false
+        seedsowBackupFolder = nil
+        seedsowUsers = []
+        seedsowCustomSource = false
+        seedsowSkipMessage = ""
+        phase = .installingSave
+        status = "Preparing the \(saveInstallName) save"
+        detail = "Keep the \(activeSaveTitle) fully closed and \(attachedFilesystemGameName) open. The original save will be backed up before it is changed."
+        progress = nil; progressLabel = "Checking the upstream launcher save"
+    }
+
+    func installBalatroSave(variant: BalatroSaveVariant) {
+        guard canInstallBalatroSave,
+              sendHostControl(["action": "install-balatro-save", "variant": variant.rawValue]) else { return }
+        activeSaveGame = .balatro
+        activeBalatroVariant = variant
         legacySeedsowInstall = false
         seedsowInstallStarted = true
         seedsowInstallCompleted = false
@@ -1281,9 +1366,28 @@ private struct GUIEvent: Decodable {
         seedsowCustomSource = false
         seedsowSkipMessage = ""
         phase = .installingSave
-        status = "Preparing the \(game.launcher) save"
-        detail = "Keep the \(game.title) demo fully closed and SmileBASIC open. The original save will be backed up before it is changed."
-        progress = nil; progressLabel = "Checking the upstream launcher save"
+        status = variant == .showcase ? "Preparing the Balatro cpypwn showcase" : "Preparing the Balatro RCE save"
+        detail = "Keep Balatro fully closed and \(attachedFilesystemGameName) open. The current save will be backed up before it is changed."
+        progress = nil; progressLabel = "Checking the bundled Balatro save"
+    }
+
+    func installGravCircSave() {
+        guard canInstallGravCircSave,
+              sendHostControl(["action": "install-gravcirc-save"]) else { return }
+        activeSaveGame = .gravcirc
+        activeBalatroVariant = nil
+        legacySeedsowInstall = false
+        seedsowInstallStarted = true
+        seedsowInstallCompleted = false
+        seedsowInstallSkipped = false
+        seedsowBackupFolder = nil
+        seedsowUsers = []
+        seedsowCustomSource = false
+        seedsowSkipMessage = ""
+        phase = .installingSave
+        status = "Preparing the Gravity Circuit save"
+        detail = "Keep Gravity Circuit closed and \(attachedFilesystemGameName) open. The current save will be backed up before it is changed."
+        progress = nil; progressLabel = "Checking the bundled Gravity Circuit save"
     }
 
     func startSaveKit() {
@@ -1299,30 +1403,13 @@ private struct GUIEvent: Decodable {
         savekitMessage = "Checking held RPC before returning to homebrew"
     }
 
-    func startSDBrowser() {
-        guard canStartSDBrowser,
-              sendHostControl(["action": "start-sd-browser", "consoleAddress": sdConsoleAddress]) else { return }
-        sdBusy = true
-        sdMessage = "Opening the read-only SD browser"
-    }
-
-    func stopSDBrowser() {
-        guard canStopSDBrowser, sendHostControl(["action": "stop-sd-browser"]) else { return }
-        sdBusy = true
-        sdMessage = "Stopping the read-only SD browser"
-    }
-
-    func openSDBrowser() {
-        if let sdBrowserURL, sdRunning { NSWorkspace.shared.open(sdBrowserURL) }
-    }
-
     func selectSeedsowUser() {
-        guard activeRunMode == .seedsowSave || activeRunMode == .hostOnlyHeld,
+        guard activeRunMode == .seedsowSave || activeRunMode == .hostOnlyHeld || isAttachedFilesystemFS,
               phase == .installingSave,
               seedsowUsers.contains(selectedSeedsowUser),
               sendHostControl(["action": "select-seedsow-user", "uid": selectedSeedsowUser]) else { return }
         seedsowUsers = []
-        status = "Backing up the \(activeSaveGame?.title ?? "Seedsow Lullaby") demo save"
+        status = "Backing up the \(activeSaveGame?.title ?? "Seedsow Lullaby") save"
         progressLabel = "Saving a verified copy before writing"
     }
 
@@ -1371,7 +1458,9 @@ private struct GUIEvent: Decodable {
 
     private func presentPostRunState() {
         isEnumerating = false
-        let sessionReminder = "Keep SmileBASIC and mac2jb open, with both devices on the same network and the Switch on Ethernet."
+        let sessionReminder = isAttachedFilesystemFS
+            ? "Keep \(attachedFilesystemGameName) and mac2jb open, with both devices on the same network."
+            : "Keep SmileBASIC and mac2jb open, with both devices on the same network and the Switch on Ethernet."
         switch postRun.stage {
         case .held:
             switch postRun.homebrewStage {
@@ -1386,17 +1475,23 @@ private struct GUIEvent: Decodable {
                 progress = 1; progressLabel = isAttachedRPCSession ? "Existing RPC connected" : "4/4 complete · Switch connected"
             case .launching:
                 phase = .launchingHomebrew; status = "Starting \(homebrewTitle)"
-                detail = homebrewApp == .mintBrew
+                detail = homebrewApp == .modloader
+                    ? "\(modloaderUsedMacFolder ? "Writing selected mods to the Switch SD card, then installing the modloader" : "Installing the modloader using mods on the Switch SD card"). Keep \(attachedFilesystemGameName) and mac2jb open until the loader reports ready."
+                    : homebrewApp == .mintBrew && !isAttachedRPCSession
                     ? "You can safely disconnect the Switch from this Mac’s USB port. \(sessionReminder)"
                     : "\(sessionReminder) The app is starting."
                 progress = nil; progressLabel = homebrewMessage
             case .selecting:
                 phase = .launchingHomebrew; status = "Choose a game"
-                detail = "Choose a game, system title or firmware export below, then start its read-only HTTP/WebDAV server. \(sessionReminder)"
+                detail = "Choose a game, system title or firmware export below, then start its read-only \(ounceCakeFTPRequested ? "FTP" : "WebDAV") server. \(sessionReminder)"
                 progress = nil; progressLabel = "Game list ready"
             case .running:
-                phase = .homebrewRunning; status = "\(homebrewTitle) is running"
-                detail = isAttachedRPCSession
+                phase = .homebrewRunning; status = homebrewApp == .modloader ? "Modloader ready" : "\(homebrewTitle) is running"
+                detail = homebrewApp == .modloader
+                    ? isAttachedFilesystemFS
+                      ? "Disconnect this attachment, stop the original FS host, then close \(attachedFilesystemGameName) without restarting the Switch before launching the game."
+                      : "Finish this session, close SmileBASIC without restarting the Switch, then launch the game."
+                    : isAttachedRPCSession
                     ? "\(sessionReminder) Keep the original host open. Choose Disconnect when you’re done."
                     : "\(sessionReminder) Choose Finish session when you’re done."
                 progress = nil; progressLabel = homebrewMessage
@@ -1413,7 +1508,9 @@ private struct GUIEvent: Decodable {
             progress = nil; progressLabel = "System-code dump in progress"
         case .finishing:
             phase = .rpcFinishing; status = isAttachedRPCSession ? "Disconnecting from RPC" : "Finishing the session"
-            detail = isAttachedRPCSession ? "Stopping this app’s homebrew workers. The original host keeps RPC open." : "Wait while the host releases the endpoint and verifies final cleanup. Keep SmileBASIC open."
+            detail = isAttachedFilesystemFS ? "Stopping this app’s tools. Keep \(attachedFilesystemGameName) open until the filesystem host stops."
+                : isAttachedRPCSession ? "Stopping this app’s homebrew workers. The original host keeps RPC open."
+                : "Wait while the host releases the endpoint and verifies final cleanup. Keep SmileBASIC open."
             progress = nil; progressLabel = isAttachedRPCSession ? "Waiting for homebrew workers to stop" : "Waiting for final cleanup verification"
         case .blocked:
             phase = .homebrewStopped; status = "Restart the console"
@@ -1431,6 +1528,22 @@ private struct GUIEvent: Decodable {
         return url
     }
 
+    private func attachedSourceURL(_ path: String?) -> URL? {
+        guard let path, let selected = attachedRunDirectory else { return nil }
+        let run = Self.canonicalSessionURL(path)
+        if run == selected { return run }
+        guard selected.deletingLastPathComponent().lastPathComponent == "Sessions",
+              UUID(uuidString: selected.lastPathComponent) != nil,
+              run.lastPathComponent.range(of: "^switch2-[A-Za-z0-9]{6}$", options: .regularExpression) != nil else { return nil }
+        let runs = run.deletingLastPathComponent()
+        let host = runs.deletingLastPathComponent()
+        guard runs.lastPathComponent == "runs",
+              host.lastPathComponent == "ns2jb" ||
+                host.lastPathComponent.range(of: "^ns2-savekit-host-[A-Za-z0-9]{6}$", options: .regularExpression) != nil,
+              host.deletingLastPathComponent() == selected.appendingPathComponent("vendor") else { return nil }
+        return run
+    }
+
     private func matchesSaveInstall(_ event: GUIEvent) -> Bool {
         guard let game = activeSaveGame else { return false }
         return legacySeedsowInstall ? event.game == nil : event.game == game.rawValue
@@ -1440,7 +1553,8 @@ private struct GUIEvent: Decodable {
         guard matchesSaveInstall(event), let game = activeSaveGame,
               let backup = sessionURL(event.backupPath) else { return nil }
         let marker = legacySeedsowInstall ? "/seedsow-backups/demo-" :
-            "/artemis-backups/\(game.rawValue)-"
+            game == .balatro ? "/balatro-backups/" :
+            game == .gravcirc ? "/gravcirc-backups/" : "/artemis-backups/\(game.rawValue)-"
         return backup.path.contains(marker) ? backup : nil
     }
 
@@ -1489,10 +1603,12 @@ private struct GUIEvent: Decodable {
         }
         phase = kind == "bootstrap" ? .bootstrap : kind == "save-bootstrap" ? .savingBootstrap : .commands
         status = kind == "bootstrap" ? "Connecting the USB keyboard" : "Waiting for USB keyboard…"
-        detail = kind == "bootstrap" ? "Keep Make a Program open until the entire bootstrap has finished typing. Using \(keyDelayMs) ms per key." : "Keep the command screen focused. The expected Out of memory message after REMOVE is normal."
+        detail = kind == "bootstrap" ? "Keep Make a Program open until the entire bootstrap has finished typing. Using a \(keyDelayMs) ms release gap." : "Keep the command screen focused. The expected Out of memory message after REMOVE is normal."
         progress = 0; progressLabel = "Waiting for the USB keyboard"; isEnumerating = true
         var arguments = ["hid", kind, controller, String(keyDelayMs),
             "--enumeration-timeout", String(enumerationTimeoutSeconds),
+            "--key-hold-ms", String(keyHoldMs), "--enter-settle-ms", String(enterSettleMs),
+            "--poll-interval", String(pollInterval),
             "--load-wait-ms", String(loadWaitMs), "--run-wait-ms", String(runWaitMs),
             "--remove-wait-ms", String(removeWaitMs), "--load-confirm-wait-ms",
             String(loadConfirmWaitMs)]
@@ -1615,6 +1731,25 @@ private struct GUIEvent: Decodable {
             presentPostRunState()
             return
         }
+        if event.type == "ouncecake-import-request" {
+            guard role == "host", postRun.homebrewAttempted, homebrewApp == .mintBrew,
+                  let root = runtime?.root, let folder = sessionURL(event.requestFolder), let nonce = event.nonce else { return }
+            do {
+                let context = try OunceCakeImportContext.load(root: root, folder: folder, nonce: nonce)
+                if context.request.transport == "webdav" {
+                    guard webSaveImportID != context.id else { return }
+                    webSaveImportID = context.id
+                    let observer = OunceCakeImportModel(context: context) { [weak self] message in
+                        guard let self, self.webSaveImportID == context.id else { return }
+                        self.webSaveImportID = nil
+                        self.append(message, channel: .host)
+                    }
+                    observer.start()
+                } else { ounceCakeImport = context }
+            }
+            catch { append(error.localizedDescription, channel: .host) }
+            return
+        }
         if event.type == "account-progress" {
             guard role == "host", postRun.homebrewAttempted,
                   homebrewApp == .mintBrew,
@@ -1627,7 +1762,7 @@ private struct GUIEvent: Decodable {
             currentUSBStepHasProof = true
             safeBootstrapRetryAfterUSBFailure = false
         }
-        if event.type != "host-stage" && event.type != "izlauncher-panel", let message = event.message {
+        if event.type != "host-stage", let message = event.message {
             append(message, channel: role == "host" ? .host : .usb)
         }
         if phase == .cancelled || phase == .failed || phase == .verified || phase == .rpcDetached { return }
@@ -1639,16 +1774,19 @@ private struct GUIEvent: Decodable {
         switch event.type {
         case "rpc-attached":
             guard role == "host", isAttachedRPCSession, phase == .rpcAttaching,
-                  let directory = sessionURL(event.path), directory == attachedRunDirectory,
+                  let directory = attachedSourceURL(event.path),
                   event.sourceSession == directory.lastPathComponent,
-                  let profileId = event.profileId, let sourceHost = HostProfile(rawValue: profileId),
+                  let profileId = event.profileId,
+                  let sourceHost = HostProfile(rawValue: profileId) ??
+                    (["civswitch-fs", "artemis-seedsow"].contains(profileId) ? HostProfile.kurumuz : nil),
                   sourceHost.supportsHeldRPC else { return }
             guard postRun.ready(), postRun.choose(keepRPC: true, dumpFirmware: false), postRun.receive("rpc-held") else { return }
+            attachedRunDirectory = directory
+            attachedRPCProfileId = profileId
             activeHost = sourceHost
             runFolder = directory
             hostReadyReceived = true
             presentPostRunState()
-            requestIZlauncherModules()
         case "rpc-detached":
             guard role == "host", isAttachedRPCSession,
                   phase == .rpcFinishing, !postRun.cleanupBlocked, event.cleanupBlocked != true,
@@ -1735,40 +1873,36 @@ private struct GUIEvent: Decodable {
             if saveKitToolsAvailableInRun { savekitMessage = "RPC ready for save data tools" }
             if activeRunMode == .seedsowSave {
                 status = "Choose what to open"
-                detail = "RPC is held. Open a launcher or install an Artemis launcher save. Close the selected demo before installing its save."
+                detail = "RPC is held. Open a launcher or install a bundled game save. Close the selected game before installing its save."
                 progress = nil; progressLabel = "RPC verified · choose the next step"
-                requestIZlauncherModules()
             } else if activeRunMode == .heldRPC {
                 status = "Choose what to open"
                 detail = "RPC is held. Choose MistBrew or another available app."
-                requestIZlauncherModules()
-            } else if activeRunMode != .savekitTools {
-                requestIZlauncherModules()
             }
         case "savekit-progress":
-            guard role == "host", activeRunMode == .seedsowSave || activeRunMode == .hostOnlyHeld,
+            guard role == "host", activeRunMode == .seedsowSave || activeRunMode == .hostOnlyHeld || isAttachedFilesystemFS,
                   seedsowInstallStarted, matchesSaveInstall(event),
                   phase == .installingSave, let message = event.message,
                   let stage = event.stage, ["checking", "finding", "backup", "writing"].contains(stage) else { return }
             status = message; progressLabel = message
         case "savekit-choose-user":
-            guard role == "host", activeRunMode == .seedsowSave || activeRunMode == .hostOnlyHeld,
+            guard role == "host", activeRunMode == .seedsowSave || activeRunMode == .hostOnlyHeld || isAttachedFilesystemFS,
                   phase == .installingSave, matchesSaveInstall(event),
                   let users = event.users, (2...8).contains(users.count),
                   Set(users).count == users.count,
                   users.allSatisfy({ $0.range(of: "^[a-f0-9]{32}$", options: .regularExpression) != nil }) else { return }
             seedsowUsers = users; selectedSeedsowUser = users[0]
-            status = "Choose a \(activeSaveGame?.title ?? "Seedsow Lullaby") demo save"
-            detail = "Select the console user whose demo save should be backed up and updated."
+            status = "Choose a \(activeSaveTitle) save"
+            detail = "Select the console user whose save should be backed up and updated."
             progressLabel = "Waiting for your account selection"
         case "savekit-backup":
-            guard role == "host", activeRunMode == .seedsowSave || activeRunMode == .hostOnlyHeld,
+            guard role == "host", activeRunMode == .seedsowSave || activeRunMode == .hostOnlyHeld || isAttachedFilesystemFS,
                   phase == .installingSave,
                   let backup = saveInstallBackup(event) else { return }
             seedsowBackupFolder = backup
             progressLabel = "Original save backed up"
         case "savekit-complete":
-            guard role == "host", activeRunMode == .seedsowSave || activeRunMode == .hostOnlyHeld,
+            guard role == "host", activeRunMode == .seedsowSave || activeRunMode == .hostOnlyHeld || isAttachedFilesystemFS,
                   phase == .installingSave,
                   let files = event.files, (1...500).contains(files),
                   let backup = saveInstallBackup(event) else { return }
@@ -1777,7 +1911,7 @@ private struct GUIEvent: Decodable {
             detail = "Finishing the save installation before returning to your options."
             progress = 1; progressLabel = "\(files) written files verified"
         case "savekit-skipped":
-            guard role == "host", activeRunMode == .seedsowSave || activeRunMode == .hostOnlyHeld,
+            guard role == "host", activeRunMode == .seedsowSave || activeRunMode == .hostOnlyHeld || isAttachedFilesystemFS,
                   phase == .installingSave,
                   let files = event.files, (1...2048).contains(files),
                   let backup = saveInstallBackup(event) else { return }
@@ -1787,7 +1921,7 @@ private struct GUIEvent: Decodable {
             detail = seedsowSkipMessage
             progress = 1; progressLabel = "\(files) existing files backed up and verified"
         case "savekit-ready":
-            guard role == "host", activeRunMode == .seedsowSave || activeRunMode == .hostOnlyHeld,
+            guard role == "host", activeRunMode == .seedsowSave || activeRunMode == .hostOnlyHeld || isAttachedFilesystemFS,
                   seedsowInstallCompleted, matchesSaveInstall(event), phase == .installingSave,
                   postRun.stage == .held else { return }
             phase = .rpcHeld
@@ -1799,7 +1933,7 @@ private struct GUIEvent: Decodable {
             savekitMessage = "List titles and accounts, then choose a save to back up"
             progressLabel = seedsowInstallSkipped ? "Original save verified · RPC held" : "Save write verified · RPC held"
         case "savekit-failed":
-            guard role == "host", activeRunMode == .seedsowSave || activeRunMode == .hostOnlyHeld,
+            guard role == "host", activeRunMode == .seedsowSave || activeRunMode == .hostOnlyHeld || isAttachedFilesystemFS,
                   matchesSaveInstall(event) else { return }
             if let backup = saveInstallBackup(event) { seedsowBackupFolder = backup }
             seedsowUsers = []
@@ -1811,7 +1945,7 @@ private struct GUIEvent: Decodable {
             progress = nil
             progressLabel = ""
         case "savekit-recoverable":
-            guard role == "host", activeRunMode == .seedsowSave || activeRunMode == .hostOnlyHeld,
+            guard role == "host", activeRunMode == .seedsowSave || activeRunMode == .hostOnlyHeld || isAttachedFilesystemFS,
                   phase == .installingSave, seedsowInstallStarted,
                   matchesSaveInstall(event) else { return }
             seedsowInstallStarted = false
@@ -1889,14 +2023,15 @@ private struct GUIEvent: Decodable {
             }
             progressLabel = savekitMessage
         case "savekit-selected":
-            guard role == "host", activeRunMode == .seedsowSave || activeRunMode == .hostOnlyHeld,
+            guard role == "host", activeRunMode == .seedsowSave || activeRunMode == .hostOnlyHeld ||
+                  isAttachedFilesystemFS,
                   savekitChoicePending,
                   phase == .rpcHeld, postRun.heldConfirmed else { return }
             savekitChoicePending = false; savekitChoiceStarted = true
             savekitChoiceFinished = false
             savekitMessage = event.message ?? "SaveKit is ready"
             status = "SaveKit tools ready"
-            detail = "Choose a save action below. Keep SmileBASIC open until the session finishes."
+            detail = "Choose a save action below. Keep \(attachedFilesystemGameName) open until the session finishes."
             progressLabel = "RPC verified · SaveKit ready"
         case "savekit-done":
             guard role == "host", saveKitToolsAvailableInRun,
@@ -1908,47 +2043,56 @@ private struct GUIEvent: Decodable {
             status = "Choose a homebrew app"
             detail = "RPC remains open. Choose one app for this session."
             progressLabel = "RPC verified · choose an app"
-        case "sd-browser-started":
-            guard role == "host" else { return }
-            sdBusy = true; sdMessage = event.message ?? "Opening the read-only SD browser"
-        case "sd-browser-ready":
-            guard role == "host", let rawURL = event.browserURL, let url = URL(string: rawURL),
-                  url.scheme == "http", url.host == "127.0.0.1", url.fragment != nil,
-                  let ftp = event.url, ftp.hasPrefix("ftp://"), ftp.hasSuffix("/sd/") else { return }
-            sdBrowserURL = url; sdFTPURL = ftp; sdBusy = false; sdRunning = true
-            sdMessage = event.message ?? "SD card browser ready"
-        case "sd-browser-stopped":
-            guard role == "host" else { return }
-            sdBusy = false; sdRunning = false; sdBrowserURL = nil; sdFTPURL = ""
-            sdMessage = event.message ?? "Read-only SD browser stopped"
-        case "sd-browser-failed":
-            guard role == "host" else { return }
-            sdBusy = false; sdRunning = false; sdBrowserURL = nil; sdFTPURL = ""
-            sdMessage = event.message ?? "Read-only SD browser failed. Check the console log."
-        case "izlauncher-catalog":
-            guard role == "host", postRun.stage == .held,
-                  let modules = event.modules, modules.count <= 64,
-                  Set(modules.map(\.id)).count == modules.count else { return }
-            let previous = selectedIZlauncherModuleIDs
-            izlauncherModules = modules
-            selectedIZlauncherModuleIDs = izlauncherCatalogLoaded
-                ? previous.intersection(Set(modules.map(\.id))) : []
-            izlauncherCatalogLoaded = true
-            izlauncherModuleMessage = modules.isEmpty ? "No compatible IZlauncher modules are installed on this Mac." :
-                "Standard modules load automatically. Select up to 15 to load a specific set."
-        case "izlauncher-panel":
-            guard role == "host", postRun.stage == .held,
-                  [.launching, .running].contains(postRun.homebrewStage), homebrewApp == .izlauncher,
-                  let folder = sessionURL(event.path), folder == homebrewFolder,
-                  let rawURL = event.url, let url = IZlauncherPanelAddress.parse(rawURL) else { return }
-            izlauncherPanelURL = url
-            izlauncherPanelMessage = ""
-            izlauncherPanelChecking = false
+        case "modloader-started":
+            guard role == "host", homebrewApp == .modloader,
+                  pendingHomebrewAction == "modloader-install",
+                  postRun.launchHomebrew() else { return }
+            pendingHomebrewAction = nil
+            if let folder = sessionURL(event.path) { homebrewFolder = folder }
+            homebrewMessage = event.message ?? (modloaderUsedMacFolder
+                ? "Writing selected mods to the Switch SD card, then installing the modloader…"
+                : "Installing the modloader using mods on the Switch SD card…")
+            presentPostRunState()
+        case "modloader-progress":
+            guard role == "host", homebrewApp == .modloader,
+                  postRun.stage == .held, postRun.homebrewStage == .launching else { return }
+            homebrewMessage = event.message ?? (modloaderUsedMacFolder
+                ? "Writing selected mods to the Switch SD card, then installing the modloader…"
+                : "Installing the modloader using mods on the Switch SD card…")
+            progressLabel = homebrewMessage
+        case "modloader-ready":
+            guard role == "host", homebrewApp == .modloader,
+                  postRun.receive("homebrew-running") else { return }
+            if let folder = sessionURL(event.path) { homebrewFolder = folder }
+            modloaderInstallReady = true
+            homebrewMessage = event.message ?? (isAttachedFilesystemFS
+                ? "Modloader installed. Disconnect this attachment, stop the original FS host, then close \(attachedFilesystemGameName) without restarting the Switch before launching the game. Restart the Switch before installing a different mod."
+                : "Modloader installed. Finish this session, close SmileBASIC without restarting the Switch, then launch the game. Restart the Switch before installing a different mod.")
+            presentPostRunState()
+        case "modloader-failed":
+            guard role == "host", homebrewApp == .modloader else { return }
+            if pendingHomebrewAction == "modloader-install" && event.retrySafe == true {
+                pendingHomebrewAction = nil
+                homebrewMessage = event.message ?? (modloaderUsedMacFolder
+                    ? "The selected mods folder could not be used. Choose another folder."
+                    : "No usable mods were found on the Switch SD card.")
+                status = modloaderUsedMacFolder ? "Choose another mod folder" : "Check the Switch SD card"
+                detail = homebrewMessage
+                progressLabel = "RPC verified · choose another option"
+                return
+            }
+            if pendingHomebrewAction == "modloader-install" {
+                pendingHomebrewAction = nil
+                postRun.launchHomebrew()
+            }
+            guard postRun.receive("homebrew-failed") else { return }
+            if let folder = sessionURL(event.path) { homebrewFolder = folder }
+            homebrewMessage = event.message ?? "The modloader install failed. Restart the Switch before another attempt."
+            presentPostRunState()
         case "homebrew-accepted":
             guard role == "host", let action = event.action, action == pendingHomebrewAction else { return }
             if action == "launch-custom-homebrew" {
-                if event.customHomebrewKind == "iz-module" { homebrewApp = .izlauncher }
-                else if event.customHomebrewKind == "native-app" { homebrewApp = .nativeHBLauncher }
+                if event.customHomebrewKind == "native-app" { homebrewApp = .nativeHBLauncher }
             }
             let customOunceCake = action == "launch-custom-homebrew" &&
                 event.customHomebrewKind == "rpc-app" && event.adapter == "ouncecake"
@@ -1979,6 +2123,7 @@ private struct GUIEvent: Decodable {
         case "homebrew-ready":
             guard role == "host", postRun.receive(event.type) else { return }
             homebrewStopPending = false
+            ounceCakeSession = OunceCakeSession(); ounceCakeFTPURL = nil; ounceCakeFTPRequested = false
             homebrewMessage = event.message ?? "RPC is ready. Choose another homebrew app."
             presentPostRunState()
             detail = homebrewMessage
@@ -1999,16 +2144,17 @@ private struct GUIEvent: Decodable {
                     presentPostRunState()
                     return
                 }
+                ounceCakeFTPURL = ounceCakeFTPRequested ? event.ftpURL : nil
             }
             guard role == "host", postRun.receive(event.type, retrySafe: event.retrySafe == true) else { return }
             if let folder = sessionURL(event.path) { homebrewFolder = folder }
             if event.type == "homebrew-stopped" || event.type == "homebrew-failed" {
-                izlauncherPanelURL = nil; izlauncherPanelMessage = ""; izlauncherPanelChecking = false
-            }
+                    }
             if event.type == "homebrew-failed" { homebrewStopPending = false }
             if !preserveFailure { homebrewMessage = event.message ?? "\(homebrewTitle) session changed." }
             if ounceCakeSession.hasStarted, !preserveFailure, ["homebrew-stopped", "homebrew-failed"].contains(event.type) {
                 ounceCakeSession.stop(failed: event.type == "homebrew-failed")
+                ounceCakeFTPURL = nil
             }
             presentPostRunState()
             if event.type == "homebrew-failed", event.retrySafe == true, postRun.canLaunchHomebrew {
@@ -2027,16 +2173,12 @@ private struct GUIEvent: Decodable {
             guard postRun.receive(event.type) else { return }
             ounceCakeSession = session; selectedOunceCakeGame = session.games.first?.titleId ?? ""
             if let folder = sessionURL(event.path) { homebrewFolder = folder }
-            homebrewMessage = "Choose a game, system title or firmware export to make its files available over HTTP/WebDAV."
+            homebrewMessage = "Choose a game, system title or firmware export to make its files available over \(ounceCakeFTPRequested ? "FTP on this Mac" : "WebDAV")."
             presentPostRunState()
         case "homebrew-progress":
             guard role == "host", phase == .launchingHomebrew || phase == .homebrewRunning else { return }
             homebrewMessage = event.message ?? "\(homebrewTitle) is working…"
             progressLabel = homebrewMessage
-        case "izlauncher-module-progress":
-            guard role == "host", phase == .homebrewRunning, homebrewApp == .izlauncher,
-                  let message = event.message, !message.isEmpty, message.utf8.count <= 512 else { return }
-            izlauncherModuleMessage = message
         case "action-rejected":
             if role == "host", event.action == "stop-homebrew" {
                 homebrewStopPending = false
@@ -2055,17 +2197,12 @@ private struct GUIEvent: Decodable {
                 savekitMessage = event.message ?? "SaveKit could not return to homebrew"
                 return
             }
-            if role == "host", ["install-seedsow-save", "install-artemis-save"].contains(event.action ?? "") {
+            if role == "host", ["install-seedsow-save", "install-artemis-save", "install-balatro-save", "install-gravcirc-save"].contains(event.action ?? "") {
                 seedsowInstallStarted = false
                 phase = .rpcHeld
                 status = "Choose what to open"
                 detail = event.message ?? "The launcher save install could not start"
                 progressLabel = "RPC verified · choose the next step"
-                return
-            }
-            if role == "host", ["start-sd-browser", "stop-sd-browser"].contains(event.action ?? "") {
-                sdBusy = false
-                sdMessage = event.message ?? "The SD browser action was rejected"
                 return
             }
             if role == "host", event.action == "savekit-tool" {
@@ -2082,20 +2219,18 @@ private struct GUIEvent: Decodable {
                 detail = event.message ?? "The system-code dump could not start in this held session."
                 return
             }
-            if role == "host", event.action == "list-izlauncher-modules" {
-                izlauncherModuleMessage = event.message ?? "Could not read IZlauncher modules."
-                return
-            }
-            if role == "host", event.action == "load-izlauncher-modules" {
-                izlauncherModuleMessage = event.message ?? "Could not load IZlauncher modules."
-                return
-            }
             if role == "host", let action = event.action, action == pendingHomebrewAction {
                 pendingHomebrewAction = nil
                 pendingCustomConsoleAddress = nil
-                homebrewMessage = event.message ?? "The selected app folder is invalid. Choose another folder."
+                homebrewMessage = event.message ?? (action == "modloader-install"
+                    ? modloaderUsedMacFolder
+                      ? "The selected mods folder is invalid. Choose another folder."
+                      : "The Switch SD card mods could not be read."
+                    : "The selected app folder is invalid. Choose another folder.")
                 presentPostRunState()
-                status = "Choose another app folder"
+                status = action == "modloader-install"
+                    ? modloaderUsedMacFolder ? "Choose another mod folder" : "Check the Switch SD card"
+                    : "Choose another app folder"
                 detail = homebrewMessage
                 return
             }
@@ -2116,8 +2251,7 @@ private struct GUIEvent: Decodable {
             guard role == "host", postRun.receive(event.type) else { return }
             pendingHomebrewAction = nil
             pendingCustomConsoleAddress = nil
-            izlauncherPanelURL = nil; izlauncherPanelMessage = ""; izlauncherPanelChecking = false
-            hostIsExploiting = false
+                hostIsExploiting = false
             presentPostRunState()
         case "rpc-status-started", "rpc-status":
             guard role == "host", postRun.receive(event.type) else { return }
@@ -2258,9 +2392,7 @@ private struct GUIEvent: Decodable {
                 progress = 1; progressLabel = "Bootstrap transfer complete"
             } else if !hostCompleted && !postRun.isActive {
                 phase = .waitingForConsole; status = hostStageLabel
-                detail = activeHost == .izmysh
-                    ? "Keyboard delivery is complete. IZMYSH must independently verify its native session and restore temporary memory."
-                    : "Keyboard delivery is complete. The host must independently verify FS execution and cleanup."
+                detail = "Keyboard delivery is complete. The host must independently verify FS execution and cleanup."
                 progress = hostStageProgress; progressLabel = hostStageLabel
             }
         case "verified":
@@ -2273,20 +2405,25 @@ private struct GUIEvent: Decodable {
             hostCompleted = true
             savekitBusy = false
             phase = .verified
-            if activeRunMode == .seedsowSave && seedsowInstallCompleted {
+            if modloaderInstallReady {
+                status = "Modloader installed"
+                detail = "Close SmileBASIC without restarting the Switch, then launch the game."
+                progressLabel = "Modloader handoff and RPC cleanup verified"
+            } else if activeRunMode == .seedsowSave && seedsowInstallCompleted {
                 let game = activeSaveGame ?? .seedsow
-                status = seedsowInstallSkipped ? "\(game.title) save unchanged" :
-                    legacySeedsowInstall ? "Seedsow Lua Editor save ready" : "\(game.launcher) ready"
+                status = seedsowInstallSkipped ? "\(activeSaveTitle) save unchanged" :
+                    legacySeedsowInstall ? "\(saveInstallName) save ready" :
+                    game == .balatro || game == .gravcirc ? "\(saveInstallName) save ready" : "\(saveInstallName) ready"
                 detail = seedsowInstallSkipped
                     ? seedsowSkipMessage + " RPC cleanup was verified."
                     : legacySeedsowInstall
                       ? "Close SmileBASIC, then open the Seedsow Lullaby demo and load the installed Lua editor save."
-                      : "Close SmileBASIC, then open the \(game.title) demo and load its Artemis launcher save."
+                      : game == .balatro
+                        ? "Close SmileBASIC, then open Balatro to load the installed save."
+                        : game == .gravcirc
+                        ? "Close SmileBASIC, then open Gravity Circuit to load the installed save."
+                        : "Close SmileBASIC, then open the \(activeSaveTitle) and load its Artemis launcher save."
                 progressLabel = seedsowInstallSkipped ? "Original save backup and RPC cleanup verified" : "Save write and RPC cleanup verified"
-            } else if activeHost == .izmysh {
-                status = "IZMYSH native session verified"
-                detail = "IZMYSH verified its native session and restored scratch memory and its import. The app closed RPC. Restart the console when finished."
-                progressLabel = "Native session, scratch and import verified"
             } else {
                 status = "FS execution verified"
                 detail = "The host verified execution, restored the original instructions, and cleaned up scratch space. Restart the console when finished."
@@ -2434,7 +2571,6 @@ private struct GUIEvent: Decodable {
         if hostProcess == nil { endSessionActivity() }
         ensureFallbackLog()
         postRun.stop()
-        izlauncherPanelURL = nil; izlauncherPanelMessage = ""; izlauncherPanelChecking = false
         if ounceCakeSession.hasStarted { ounceCakeSession.stop(failed: true) }
         error = recovery; detail = recovery
         phase = .failed; status = "The session needs attention"

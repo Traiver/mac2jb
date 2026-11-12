@@ -9,13 +9,14 @@ const {selectedProfile, profileById, validStartCommand, incompatibleLegacyStartH
 const {autoControllers} = require('./usb-controllers.cjs');
 const root = path.resolve(__dirname, '..');
 const timingDefaults = Object.freeze({delay: 10, enumerationTimeout: 4, loadWaitMs: 1000,
-  runWaitMs: 0, removeWaitMs: 0, loadConfirmWaitMs: 0});
+  runWaitMs: 0, removeWaitMs: 0, loadConfirmWaitMs: 0, keyHoldMs: 0, enterSettleMs: 0, pollInterval: 10});
 function hidSettings(args) {
   const settings = {...timingDefaults};
   const values = [...args];
   if (values.length && !values[0].startsWith('--')) settings.delay = Number(values.shift());
   const options = {'--enumeration-timeout': 'enumerationTimeout', '--load-wait-ms': 'loadWaitMs',
-    '--run-wait-ms': 'runWaitMs', '--remove-wait-ms': 'removeWaitMs', '--load-confirm-wait-ms': 'loadConfirmWaitMs'};
+    '--run-wait-ms': 'runWaitMs', '--remove-wait-ms': 'removeWaitMs', '--load-confirm-wait-ms': 'loadConfirmWaitMs',
+    '--key-hold-ms': 'keyHoldMs', '--enter-settle-ms': 'enterSettleMs', '--poll-interval': 'pollInterval'};
   while (values.length) {
     const option = values.shift();
     if (option === "--demo") {
@@ -32,8 +33,8 @@ function hidSettings(args) {
   }
   for (const name of Object.keys(timingDefaults)) {
     const value = settings[name];
-    const minimum = name === 'delay' || name === 'enumerationTimeout' ? 1 : 0;
-    const maximum = name === 'delay' ? 2000 : name === 'enumerationTimeout' ? 120 : 120000;
+    const minimum = name === 'delay' || name === 'enumerationTimeout' || name === 'pollInterval' ? 1 : 0;
+    const maximum = ['delay', 'keyHoldMs', 'enterSettleMs'].includes(name) ? 2000 : name === 'pollInterval' ? 16 : name === 'enumerationTimeout' ? 120 : 120000;
     if (!Number.isInteger(value) || value < minimum || value > maximum) throw Error(`Invalid ${name}: use ${minimum}..${maximum}.`);
   }
   return settings;
@@ -97,6 +98,16 @@ function verifiedResult(result) {
   return result?.verified === true && result?.fs?.verified === true &&
     result?.fs?.restored === true && result?.fs?.cleanup?.cleanedUp === true;
 }
+function validLocalFTPURL(value) {
+  if (typeof value !== 'string' || value.length > 64) return false;
+  try {
+    const url = new URL(value);
+    return url.protocol === 'ftp:' && url.hostname === '127.0.0.1' &&
+      Number(url.port) > 0 && Number(url.port) < 65536 &&
+      url.pathname === '/' && !url.username && !url.password && !url.search && !url.hash;
+  } catch { return false; }
+}
+
 function networkBindFailure(line, address, port = 39380) {
   const match = /\blisten\s+EADDRNOTAVAIL\b.*?\s(\d+(?:\.\d+){3}):(\d+)\b/.exec(line);
   if (!match || match[1] !== address || match[2] !== String(port)) return null;
@@ -127,17 +138,14 @@ async function host(address) {
   // existing record, including a symlink or a record from another host.
   if (fs.existsSync(active) || (() => {try {fs.lstatSync(active); return true;} catch {return false;}})())
     throw Error('This session already has a pairing record. Stop it and start a fresh session.');
-  const izmysh = profile.engine === 'izmysh';
-  const engineFolder = izmysh ? path.join(root, profile.sourceDirectory) : folder;
-  current = spawn(process.execPath, izmysh ? [path.join(engineFolder, 'server/host.cjs'), address] : ['run.cjs', address], {
-    cwd: engineFolder, detached: true, stdio: ['ignore', 'pipe', 'pipe'],
+  current = spawn(process.execPath, ['run.cjs', address], {
+    cwd: folder, detached: true, stdio: ['ignore', 'pipe', 'pipe'],
     // Use the selected host's matching bootstrap without changing its source.
     // GUI sessions finish after verification, regardless of inherited settings.
-    env: {...process.env, NS2_BASIC_ARITY: String(profile.startArgumentCount), NS2_RPC_MODE: '0',
-      ...(izmysh ? {IZ_SESSION_DIR: runs, HB_PORT: String(profile.startPort)} : {})}
+    env: {...process.env, NS2_BASIC_ARITY: String(profile.startArgumentCount), NS2_RPC_MODE: '0'}
   });
   const child = current;
-  let published = false, directory, publicationError, networkFailure, networkTimer, progressed = false, qualified = false;
+  let published = false, directory, publicationError, networkFailure, networkTimer, progressed = false;
   function output(line) {
     try {
     const clean = line.trim();
@@ -166,11 +174,6 @@ async function host(address) {
       emit('host-stage', {stage: 'connected', message: 'Switch connected — checking the application'});
     else if (/^[1-4]\/4 /.test(clean)) emit('host-stage', {
       stage: 'pipeline', completed: Number(clean[0])-1, total: 4, message: clean});
-    if (izmysh && clean === 'Qualified native session ready.') {
-      qualified = true;
-      emit('host-stage', {stage: 'verified', message: 'IZMYSH native session qualified; closing its RPC connection.'});
-      signalGroup(child, 'SIGTERM');
-    }
     if (!incompatibleLegacyStartHint(clean, profile.startArgumentCount)) emit('log', {message: line});
     } catch (error) {
       publicationError ||= error;
@@ -200,14 +203,7 @@ async function host(address) {
     return 1;
   }
   if (stopping) {emit('cancelled', {message: 'Session stopped. Restart the console before another exploit attempt.'}); return 130;}
-  const izmyshVerified = izmysh && qualified && result?.engine === 'izmysh' &&
-    result.qualification?.verified === true && result.qualification?.scratchRestored === true &&
-    result.qualification?.importRestored === true && typeof result.completed === 'string' && !result.error;
-  if (code === 0 && !signal && !publicationError && (izmyshVerified || verifiedResult(result))) {
-    if (izmyshVerified) {
-      emit('verified', {message: 'IZMYSH verified the native session and restored its scratch memory and import.'});
-      return 0;
-    }
+  if (code === 0 && !signal && !publicationError && verifiedResult(result)) {
     emit('verified', {message: 'FS execution verified; original instructions restored and scratch cleaned up.'}); return 0;
   }
   emit('failed', {message: result?.error || 'The host ended without a verified result. Restart the console before retrying.'});
@@ -248,7 +244,10 @@ async function hid(kind, controller, settings = timingDefaults) {
         ...(settings.startPrefix?['--start-prefix']:settings.startCommand?['--start-command',settings.startCommand]:[])] : [])];
     current = spawn(executable, args, {cwd: root, detached: true, stdio: ['ignore', 'pipe', 'pipe'],
       env: {...process.env, MAC2JB_AUTO_WORKER: '1', MAC2JB_CONTROLLER: candidate,
-        MAC2JB_ENUMERATION_TIMEOUT_SECONDS: String(enumerationTimeout)}});
+        MAC2JB_ENUMERATION_TIMEOUT_SECONDS: String(enumerationTimeout),
+        MAC2JB_KEY_HOLD_MS: String(settings.keyHoldMs ?? timingDefaults.keyHoldMs),
+        MAC2JB_ENTER_SETTLE_MS: String(settings.enterSettleMs ?? timingDefaults.enterSettleMs),
+        MAC2JB_POLL_INTERVAL: String(settings.pollInterval ?? timingDefaults.pollInterval)}});
     const child = current;
     let output = '', typing = false, timedOut = false, announced = false, commandStep = 0, nativeEvents = false, nativeLineEvents = false,prefixCompleted=false;
     const completedCommands=new Set();
@@ -411,7 +410,7 @@ async function hid(kind, controller, settings = timingDefaults) {
     const safeEnumerationFailure=!initializationError&&((controller==='auto'&&!signal&&code===1&&noGadgetInitialization)||
       (timedOut&&(['SIGTERM','SIGKILL'].includes(signal)||[1,130].includes(code)))||(!signal&&code===1&&enumerationError));
     if (!safeEnumerationFailure) {
-      emit('failed', {message: 'USB initialization failed. Check that the approved usbgadget driver is installed and loaded.'}); return code || 1;
+      emit('failed', {message: 'USB initialization failed. Check that usbgadget is loaded and attached to a USB device controller.'}); return code || 1;
     }
     safeFailures++;
     if(noGadgetInitialization)initFailures++;
@@ -421,21 +420,21 @@ async function hid(kind, controller, settings = timingDefaults) {
   }
   if (stopping) {emit('cancelled', {message: 'Transfer stopped. Inspect the Switch for partial input.'}); return 130;}
   emit('failed', {...(safeFailures===candidates.length?{retrySafe:true}:{}),message: initFailures===candidates.length
-    ? 'USB initialization failed on every controller. Check that the approved usbgadget driver is installed and loaded.'
+    ? 'USB initialization failed on every controller. Check that usbgadget is loaded and attached to a USB device controller.'
     : 'No controller connected. The Mac must NOT be supplying charging power to the Switch. Unplug the USB-C cable from the Switch, wait about one second, then plug it back into the Switch and verify that power is directed toward the Mac. Software cannot force the power role. You can also choose a controller manually.'}); return 1;
 }
 async function main(args = process.argv.slice(2)) {
   if (args[0] === 'host' && args.length === 4 && args[2] === '--post-run-options' &&
       args[3] === '--seedsow-save') {
-    if (!['kurumuz', 'cellenseres'].includes(selectedProfile(root).id))
-      throw Error('Seedsow save installation requires the Kurumuz or Cellenseres host.');
+    if (!selectedProfile(root).supportsSaveKit)
+      throw Error('Seedsow save installation requires a SaveKit-capable host.');
     return require('./gui-session.cjs').main({root, address: args[1], emit, lines,
       verifiedResult, seedsowSave: true, savekitTools: true});
   }
   if (args[0] === 'host' && args.length === 4 && args[2] === '--post-run-options' &&
       args[3] === '--savekit-tools') {
-    if (!['kurumuz', 'cellenseres'].includes(selectedProfile(root).id))
-      throw Error('SaveKit tools require the Kurumuz or Cellenseres host.');
+    if (!selectedProfile(root).supportsSaveKit)
+      throw Error('SaveKit tools require a SaveKit-capable host.');
     return require('./gui-session.cjs').main({root, address: args[1], emit, lines,
       verifiedResult, savekitTools: true});
   }
@@ -464,7 +463,7 @@ async function main(args = process.argv.slice(2)) {
   if (args[0] === 'hid' && args.length >= 3) return hid(args[1], args[2], hidSettings(args.slice(3)));
   throw Error('Usage: gui-host.cjs host IPv4 | hid bootstrap|commands|save-bootstrap auto|usb-drdN [delay-ms] | hid commands-only auto|usb-drdN [delay-ms] --commands CSV [--start-prefix|--start-command TEXT]');
 }
-module.exports = {validStart, verifiedResult, hidSettings,commandsOnlySettings,heldCommandsSettings, lines, main, networkBindFailure, networkUnavailableMessage};
+module.exports = {validStart, verifiedResult, hidSettings,commandsOnlySettings,heldCommandsSettings, lines, main, networkBindFailure, networkUnavailableMessage, validLocalFTPURL};
 if (require.main === module) main().then(code => {process.exitCode = code;}).catch(error => {
   signalGroup(current, 'SIGTERM'); emit('failed', {message: error.message}); process.exitCode = 1;
 });

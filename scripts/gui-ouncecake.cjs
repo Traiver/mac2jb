@@ -51,9 +51,10 @@ async function validateAttachment(run){
  return {current,root,proof,layout};
 }
 function validateConfiguration(value){
- const port=8080;
- check(value&&typeof value==='object'&&!Array.isArray(value)&&net.isIPv4(value.consoleAddress)&&value.port===port,'Enter the console’s IPv4 address and server port.');
- return {consoleAddress:value.consoleAddress,port};
+ check(value&&typeof value==='object'&&!Array.isArray(value)&&net.isIPv4(value.consoleAddress)&&value.port===8080&&
+  (value.mode===undefined||['webdav','ftp'].includes(value.mode)),
+  'Enter the console’s IPv4 address, port 8080 and a supported file service.');
+ return {consoleAddress:value.consoleAddress,port:8080,...(value.mode==='ftp'?{mode:'ftp'}:{})};
 }
 function catalogEntries(games){
  check(Array.isArray(games)&&games.length<=1000,'OunceCake requires a bounded game catalog.');
@@ -85,7 +86,7 @@ async function main(args=process.argv.slice(2),options={}){
  }
  check(args.length===1,'Usage: gui-ouncecake.cjs RUN_DIRECTORY (configuration and game selection on stdin)');
  const input=options.input||process.stdin,output=options.emit||((type,fields)=>process.stdout.write('MAC2JB_HOMEBREW '+JSON.stringify({type,...fields})+'\n'));
- let stopping=false,cleanupBlocked=false,failure,attachment,server,directory,report,waiting=false,selected=false,outputClosed=false;
+ let stopping=false,cleanupBlocked=false,failure,attachment,server,ftpBridge,directory,report,waiting=false,selected=false,outputClosed=false;
  let configurationResolve,configurationReject,selectionResolve,stopResolve,monitor;
  const configured=new Promise((resolve,reject)=>{configurationResolve=resolve;configurationReject=reject;});
  const selection=new Promise(resolve=>{selectionResolve=resolve;}),stopped=new Promise(resolve=>{stopResolve=resolve;});
@@ -126,7 +127,9 @@ async function main(args=process.argv.slice(2),options={}){
   await fs.writeFile(path.join(run.directory,'.mac2jb-hblauncher-attempt.json'),marker,{flag:'wx',mode:0o600});
   await fs.writeFile(path.join(run.directory,'.mac2jb-ouncecake-attempt.json'),marker,{flag:'wx',mode:0o600});
   const modules=options.modules||loadModules();
-  emit('started',{message:'Preparing '+label+' game export. Keep SmileBASIC and mac2jb open.'});
+  emit('started',{message:'Preparing '+label+' game export. Keep '+
+   (run.connection?.addresses?.target==='civ7'?'Civilization VII':
+    run.connection?.addresses?.target==='artemis-seedsow'?'Seedsow Lullaby':'SmileBASIC')+' and mac2jb open.'});
   monitor=setInterval(()=>{if(!isLive())stop();},1000);monitor.unref();
   try{attachment=await modules.session.attachGame(run.directory);}
   catch(error){error.cleanupBlocked=true;throw error;}
@@ -147,7 +150,7 @@ async function main(args=process.argv.slice(2),options={}){
     let prepared;
     try{prepared=await prepare(false);}
     catch(error){
-     if(canRawFallback(error)&&modules.exports?.prepareTitleNcas&&attachment.s.threads.size===0&&!stopping){
+     if(error.code!=='GAME_CARD_RIGHTS_UNAVAILABLE'&&canRawFallback(error)&&modules.exports?.prepareTitleNcas&&attachment.s.threads.size===0&&!stopping){
       try{
       const baseline=preparationHandles;
       for(const handle of [...attachment.s.handles].reverse())if(!baseline.has(handle))await attachment.s.close(handle);
@@ -156,13 +159,26 @@ async function main(args=process.argv.slice(2),options={}){
       emit('progress',{message:'No usable ELicense. Preparing original encrypted NCAs.'});
       prepared=await prepare(true);
       }catch(rawError){rawError.cleanupBlocked=true;throw rawError;}
-     }else{error.cleanupBlocked=error.cleanupBlocked||error.code!=='PREPARATION_TIMEOUT';throw error;}
+     }else{error.cleanupBlocked=error.cleanupBlocked||!['PREPARATION_TIMEOUT','GAME_CARD_RIGHTS_UNAVAILABLE'].includes(error.code);throw error;}
     }
     report.exportInfo=prepared.exportInfo||null;
     if(!stopping){
      server=await modules.server.deployServer({attachment,image:snapshot.image,...prepared,port});
-     check(!stopping&&isLive(),'The original held session ended during server startup.');
-     report.status='running';await save();emit('running',{host:config.consoleAddress,port,httpURL:'http://'+config.consoleAddress+':'+port+'/',message:label+' read-only HTTP/WebDAV server is running.'});
+     check(!server.address||server.address===config.consoleAddress,'OunceCake reported a different console address.');
+     check(!stopping&&isLive(),'The original held session ended during HTTP/WebDAV startup.');
+     report.httpURL='http://'+config.consoleAddress+':'+port+'/';
+     if(config.mode==='ftp'){
+      ftpBridge=await (options.createFtpBridge||require('../integrations/mintbrew-ouncecake/ftp-bridge.cjs').start)({
+       index:prepared.index,sourceAddress:config.consoleAddress,sourcePort:port});
+      check(ftpBridge.address==='127.0.0.1'&&Number.isInteger(ftpBridge.port)&&
+       ftpBridge.port>0&&ftpBridge.port<65536&&typeof ftpBridge.close==='function',
+       'OunceCake did not start a valid Mac-local FTP bridge.');
+      report.ftpURL='ftp://'+ftpBridge.address+':'+ftpBridge.port+'/';
+     }
+     report.status='running';await save();emit('running',{host:config.consoleAddress,port,
+      httpURL:report.httpURL,...(report.ftpURL?{ftpURL:report.ftpURL}:{}),
+      message:config.mode==='ftp'?'OunceCake read-only FTP is running on this Mac at '+report.ftpURL:
+       'OunceCake read-only HTTP/WebDAV is running at '+report.httpURL});
      await stopped;
     }
    }
@@ -170,7 +186,8 @@ async function main(args=process.argv.slice(2),options={}){
  }catch(error){failure=error;cleanupBlocked=blocked(error);}
  finally{
   clearTimeout(configurationTimer);clearInterval(monitor);waiting=false;
-  if(server&&!cleanupBlocked){try{check(isLive(),'The held native session ended before server cleanup.');report.shutdown=await server.close();check(report.shutdown?.nativeStopped===true&&report.shutdown?.joined===true&&report.shutdown?.mappingsCleared===true,'OunceCake did not prove native cleanup.');}
+  if(ftpBridge){try{await ftpBridge.close();}catch(error){failure ||= error;}}
+  if(server&&!cleanupBlocked){try{check(isLive(),'The held native session ended before HTTP/WebDAV cleanup.');report.shutdown=await server.close();check(report.shutdown?.nativeStopped===true&&report.shutdown?.joined===true&&report.shutdown?.mappingsCleared===true,'OunceCake did not prove native cleanup.');}
    catch(error){failure ||= error;cleanupBlocked=true;}}
   if(attachment&&!cleanupBlocked){try{await attachment.close();check(attachment.s.base===0&&attachment.s.handles.size===0&&attachment.s.threads.size===0,'OunceCake attachment cleanup was deferred.');}
    catch(error){failure ||= error;cleanupBlocked=true;}}
@@ -183,7 +200,7 @@ async function main(args=process.argv.slice(2),options={}){
    if(options.waitBlocked)await options.waitBlocked();
    else await new Promise(resolve=>{const timer=setInterval(()=>{if(!isLive||!isLive()){clearInterval(timer);resolve();}},1000);});
   }else if(failure)emit('failed',{cleanupBlocked:false,message:failure.message+' This launch was not retried. Finish RPC and restart the console.'});
-  else emit('stopped',{message:label+' native server stopped, executable mappings removed and owned handles released.'});
+  else emit('stopped',{cleanupVerified:true,message:label+' native server stopped, executable mappings removed and owned handles released.'});
   input.removeListener('data',data);input.removeListener('end',ended);input.pause();process.removeListener('SIGTERM',stop);process.removeListener('SIGINT',stop);process.stdout.removeListener('error',pipeError);
  }
  if(failure||cleanupBlocked){const error=failure||Error('OunceCake cleanup was blocked.');error.homebrewReported=true;error.cleanupBlocked=cleanupBlocked;throw error;}

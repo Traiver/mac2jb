@@ -1,10 +1,14 @@
 const fs=require('node:fs/promises'),path=require('node:path'),crypto=require('node:crypto');
+const {isDeepStrictEqual}=require('node:util');
 const code=require('../smilebasic/engine/switch2/app/thread-code.json').functions;
 const timing=require('../smilebasic/engine/switch2/app/timing-code.json').functions;
 const holdReturn=require('./hold-return.cjs');
 const frameClock=require('./frame-clock.cjs');
 const check=(v,m)=>{if(!v)throw Error(m);};
 const serviceStartError=(failure,active)=>failure?.service&&active?.service===failure.service?failure.error:null;
+function reuseOunceCakeFrame(previousApp,app,request,input,previousInput){
+ return app?.id==='ouncecake'&&previousApp===app&&request!==0&&isDeepStrictEqual(input,previousInput);
+}
 const struct=(n,type,words={},ptrs={})=>{const b=Buffer.alloc(n);b.writeUInt32LE(type);for(const[k,v]of Object.entries(words))b.writeUInt32LE(v,+k);for(const[k,v]of Object.entries(ptrs))b.writeBigUInt64LE(BigInt(v),+k);return b;};
 async function main(directory,attempt='',instance=''){
  check(!instance||/^[a-z0-9-]+$/.test(instance),'Invalid loop instance');
@@ -66,8 +70,14 @@ async function main(directory,attempt='',instance=''){
  report.sdk={joyMouse:!!sdkRuntime.hardware.joyMouse,joyMouseError:sdkRuntime.hardware.joyMouseError};await save();
  try{
  await sdkRuntime.atBoundary();
- let frame,proof,checks,program,logicalCalls,bridgeMailbox;
- async function prepareFrame(){
+ let frame,proof,checks,program,logicalCalls,bridgeMailbox,previousInput;
+ async function prepareFrame(previousApp,request=0){
+ const frameInput=sdkRuntime.hardware.frameCalls(prepared.controls.mapped);
+ if(reuseOunceCakeFrame(previousApp,runtime.active?.app,request,frameInput,previousInput)){
+  // The joined worker left a verified snapshot. Reset its completion marker before restarting.
+  await rpc.write(program.addresses.at(-1),Buffer.alloc(8));
+  return;
+ }
  const calls=[];checks=[];const add=(fn,args,expectZero=false)=>{if(expectZero)checks.push(calls.length);calls.push({function:fn,args:[...args,...Array(4-args.length).fill(0)]});};
  const bridge=runtime.active?.app.manifest.cpuBridge,privateStorage=runtime.active?.gpu.privateStorage;
  bridgeMailbox=null;
@@ -82,7 +92,6 @@ async function main(directory,attempt='',instance=''){
   const obj=control+0x1000+(f%prepared.commands.length)*0x100;
   const clock=frameClock.append(calls,{sdk,base,mapped:prepared.controls.mapped,tickOffset:timing.tick.offset});
   if(bridgeMailbox!==null)add(sdk+frameClock.COPY_OFFSET,[bridgeMailbox,clock.result,8]);
-  const frameInput=sdkRuntime.hardware.frameCalls(prepared.controls.mapped);
   if(!frameInput.some(call=>call.args[0]===prepared.controls.mapped))add(input.target,[prepared.controls.mapped,control+0x230]);
   for(const call of frameInput){verified.add(call.function);add(call.function,call.args);}
   add(touch.target,[prepared.controls.mapped+128]);
@@ -95,6 +104,7 @@ async function main(directory,attempt='',instance=''){
  add(sdk+timing.tick.offset,[]);
  logicalCalls=calls;
  program=await require('../sdk/native/repeating.cjs').prepare(rpc,{base,code,calls,verified});frame=program.frame;proof=program.proof;
+ previousInput=frameInput;
  report.proof=proof;report.frameSha256=crypto.createHash('sha256').update(frame).digest('hex');report.framesPerCycle=frameCount;report.continuous=true;await save();
  await fs.writeFile(path.join(directory,loopStem+'-loop-frame.bin'),frame);
 
@@ -136,7 +146,6 @@ async function main(directory,attempt='',instance=''){
     check(!failures.length,'Continuous graphics call failed: '+JSON.stringify(failures));
     const interval=lastHeartbeat?Number(heartbeat-lastHeartbeat)/frequency:null;
     report.batches.push({status:'continuous',counter:String(heartbeat),interval,frames:frameCount,failures:[],at:new Date().toISOString()});if(report.batches.length>300)report.batches.shift();lastHeartbeat=heartbeat;await save();
-    if(interval)console.log('MintBrew continuous: '+frameCount+' frames / '+interval.toFixed(3)+'s');
    }
    const refresh=state.readFloatLE(104),connected=!!(state.readUInt32LE(32)&1);
    let returnRequested=false;
@@ -160,7 +169,10 @@ async function main(directory,attempt='',instance=''){
    const previousApp=runtime.active?.app,commands=await runtime.afterBatch({returnRequested:returnRequested||!!failedStart,failure:failedStart});
    if(runtime.active?.app!==previousApp){serviceStartFailure=null;hold.reset();await sdkRuntime.atBoundary(runtime.active?.app);}
    check(commands.length===r.images.length,'App swapchain command count differs');const handles=Buffer.alloc(commands.length*8);commands.forEach((v,i)=>handles.writeBigUInt64LE(BigInt(v),i*8));await rpc.write(control+0x1060,handles);
-   lastRefresh=(await rpc.read(prepared.controls.mapped+104,4)).readFloatLE();await prepareFrame();await startWorker();
+   const selection=state.readUInt32LE(1012);
+   lastRefresh=(await rpc.read(prepared.controls.mapped+104,4)).readFloatLE();
+   await prepareFrame(previousApp,!connectionChanged&&!serviceRequest?selection:0);
+   await startWorker();
    if(runtime.active?.app!==previousApp&&typeof runtime.active?.service?.start==='function'){
     const service=runtime.active.service;
     void service.start().catch(error=>{
@@ -174,4 +186,4 @@ async function main(directory,attempt='',instance=''){
  report.completed=new Date().toISOString();await save();console.log('MintBrew stopped; resources retained.');
 }
 if(require.main===module)main(process.argv[2],process.argv[3],process.argv[4]).catch(e=>{console.error(e);process.exitCode=1;});
-module.exports={serviceStartError};
+module.exports={serviceStartError,reuseOunceCakeFrame};

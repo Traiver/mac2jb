@@ -56,7 +56,7 @@ test('console FTP address is taken only from qualified Switch network state',()=
  assert.equal(value.subarray(128,128+value.readUInt32LE(16)).toString(),'http://192.0.2.20:8080/');
 });
 
-function fixture(t,{serverStopError,handleCloseError,detachError,prepareGame,exportsEngine,saveTools,saveServer,preparationTimeoutMs,realRaster=false,reuseDirectory,deployError,rasterRows}={}){
+function fixture(t,{serverStopError,handleCloseError,detachError,prepareGame,exportsEngine,saveTools,saveServer,saveImporter,gameTar,preparationTimeoutMs,realRaster=false,reuseDirectory,deployError,rasterRows,onGameList}={}){
  const directory=reuseDirectory||fs.mkdtempSync(path.join(os.tmpdir(),'mac2jb-ouncecake-service-'));
  t.after(()=>fs.rmSync(directory,{recursive:true,force:true}));
  const events={attach:0,detach:0,deployed:0,stopped:0,mounted:0,closed:[],order:[],fatal:[],writes:[]};
@@ -88,12 +88,12 @@ function fixture(t,{serverStopError,handleCloseError,detachError,prepareGame,exp
  if(exportsEngine)modules.exports=exportsEngine;
  const instance=service.create({rpc,menu,gpu:{fingerprint:'abc',privateStorage:{mapped,bytes:protocol.STORAGE_BYTES}},
   app:{id:'ouncecake',fingerprint:'abc',manifest:{service:'ouncecake-v1'}},directory,root,
-  runDirectory:'/run/switch-test',sourceSession:'switch-test',modules,saveTools,saveServer,preparationTimeoutMs,
+  runDirectory:'/run/switch-test',sourceSession:'switch-test',modules,saveTools,saveServer,saveImporter,gameTar,preparationTimeoutMs,
   liveCheck:async()=>true,
   verifyHeld:async()=>({run:{directory:'/run/switch-test',proof:{session:'switch-test'},
    connection:{addresses:{session:'switch-test'}}},snapshot:{image:Buffer.from('native'),nativeImageSha256:'abc'}}),
   rasterGames:rasterRows||(realRaster?undefined:async games=>Buffer.alloc(games.length*protocol.TILE_BYTES,0xf0)),
-  onGameList:async()=>{events.order.push('title-ftp-resumed');},
+  onGameList:async()=>{events.order.push('title-ftp-resumed');await onGameList?.();},
   onFatal:error=>events.fatal.push(error)});
  return {instance,events,directory};
 }
@@ -112,12 +112,27 @@ test('A selects one game; short B closes FTP and allows another selection',async
  assert.deepEqual(events.closed.sort((a,b)=>a-b),[101,201]);
  assert.ok(events.order.indexOf('ftp-stopped')<events.order.indexOf('handle:201'));
  assert.ok(events.order.indexOf('ftp-stopped')<events.order.indexOf('handle:101'));
+ await waitFor(()=>events.order.includes('title-ftp-resumed'),true);
  assert.ok(events.order.indexOf('handle:101')<events.order.indexOf('title-ftp-resumed'));
  await instance.select(0);await waitFor(()=>instance.report.status,'running');
  await instance.close();
  assert.equal(events.attach,1);assert.equal(events.stopped,2);assert.equal(events.detach,1);
  assert.equal(instance.report.status,'stopped');
  assert.equal(events.fatal.length,0);
+});
+
+test('a game offers TAR alongside its regular URL and stops TAR before the native download server',async t=>{
+ const {instance,events}=fixture(t,{saveServer:{hostAddress:()=> '127.0.0.1'},
+  gameTar:{async start({name,switchAddress}){assert.equal(name,'Test game [0100000000000001].tar');assert.equal(switchAddress,'192.0.2.20');
+   return {url:'http://127.0.0.1:8081/',async close(){events.order.push('tar-stopped');}};}}});
+ await instance.start();await waitFor(()=>instance.report.status,'catalog');
+ await instance.select(0);await waitFor(()=>instance.report.status,'running');
+ assert.equal(instance.report.httpURL,'http://192.0.2.20:8080/');
+ assert.equal(instance.report.tarURL,'http://127.0.0.1:8081/');
+ await instance.back();await waitFor(()=>instance.report.status,'catalog');
+ assert.ok(events.order.indexOf('tar-stopped')<events.order.indexOf('ftp-stopped'));
+ assert.equal(instance.report.tarURL,undefined);
+ await instance.close();
 });
 
 test('uncertain FTP shutdown keeps the held session blocked',async t=>{
@@ -351,8 +366,21 @@ test('selected Unicode title raster has a separate bounded slot and visibility f
 
 test('Japanese selected title stays in its Unicode image tile while operational messages remain ASCII',async t=>{
  const rows=[];const title='ゼルダの伝説 時のオカリナ';
- const {instance,events}=fixture(t,{rasterRows:async games=>{rows.push(games);return Buffer.alloc(games.length*protocol.TILE_BYTES);},exportsEngine:{async discoverExports(){return [{title:'0400486024dec000',name:title,storages:[4]}];},async prepareExport(){return {index:Buffer.alloc(64),sources:[{handle:7}]};}}});
- await instance.start();await waitFor(()=>instance.report.status,'catalog');await instance.select(0);await waitFor(()=>instance.report.status,'running');
+ const headingRaster=Promise.withResolvers();
+ t.after(()=>headingRaster.resolve());
+ const {instance,events}=fixture(t,{rasterRows:async games=>{
+  rows.push(games);
+  if(games[0].heading)await headingRaster.promise;
+  return Buffer.alloc(games.length*protocol.TILE_BYTES);
+ },exportsEngine:{async discoverExports(){return [{title:'0400486024dec000',name:title,storages:[4]}];},async prepareExport(){return {index:Buffer.alloc(64),sources:[{handle:7}]};}}});
+ await instance.start();await waitFor(()=>instance.report.status,'catalog');
+ const selection=instance.select(0);
+ await waitFor(()=>instance.report.status,'preparing');
+ await selection;
+ const preparing=events.writes.findLast(row=>row.bytes.length===protocol.HEADER_BYTES).bytes;
+ assert.equal(preparing.readUInt32LE(28),0);
+ headingRaster.resolve();
+ await waitFor(()=>instance.report.status,'running');
  const heading=rows.flat().find(row=>row.heading);assert.equal(heading.name,title);assert.equal(heading.titleId,'0400486024dec000');
  assert.ok(events.writes.some(row=>row.address===0x500000000+protocol.HEADER_BYTES+protocol.TITLE_TILE_INDEX*protocol.TILE_BYTES));
  const header=events.writes.findLast(row=>row.bytes.length===protocol.HEADER_BYTES).bytes;assert.equal(header.readUInt32LE(28),1);
@@ -506,4 +534,175 @@ test('a partial bulk backup is explicitly marked in the UI and share name',async
  assert.equal(shareName,'All Saves (partial)');assert.equal(instance.report.saveBackup.partial,true);
  const header=events.writes.filter(x=>x.bytes.length===protocol.HEADER_BYTES).at(-1).bytes;
  assert.match(header.subarray(128,128+header.readUInt32LE(16)).toString(),/^PARTIAL http:/);await instance.close();
+});
+
+const importFiles=require('../integrations/mintbrew-ouncecake/save-import-files.cjs');
+const importSaves=require('../integrations/mintbrew-ouncecake/saves.cjs');
+const importArchive={id:'12',space:1,type:1,rank:0,index:0,uid:'00112233445566778899aabbccddeeff',titleId:'0400123456780000',size:'16'};
+async function importFixture(t,{restore,archive=importArchive}={}){
+ let restores=0,scans=0;
+ const f=fixture(t,{saveTools:{...importSaves,async inventory(){if(++scans===2&&archive.type!==2)assert.equal(f.instance.report.status,'preparing');return [archive];},async withProfiles({archives}){return archives;}},
+  exportsEngine:{async discoverExports(){return [{title:archive.titleId,name:'Import game',storages:[4],kind:'game'}];}},
+  saveImporter:{async restore(options){restores++;return restore?restore(options):{verified:true,backupPath:'/test-backup'};}}});
+ await f.instance.start();await waitFor(()=>f.instance.report.status,'catalog');
+ await f.instance.selectSaves(0);await waitFor(()=>f.instance.report.catalogView,'saves');await waitFor(()=>f.instance.report.status,'catalog');
+ await f.instance.selectRaw(1);await waitFor(()=>f.instance.report.status,archive.type===2?'catalog':'importing');
+ const folders=fs.existsSync(path.join(f.directory,'save-imports'))?fs.readdirSync(path.join(f.directory,'save-imports')):[];
+ return {...f,get restores(){return restores;},folder:folders.length?path.join(fs.realpathSync(f.directory),'save-imports',folders[0]):undefined};
+}
+async function stageFixture(f){
+ const source=path.join(f.directory,'source');fs.mkdirSync(path.join(source,'files'),{recursive:true});fs.writeFileSync(path.join(source,'files/slot'),'edited');
+ fs.writeFileSync(path.join(source,'manifest.json'),JSON.stringify({format:'mac2jb.save-backup',version:1,readOnly:true,partial:false,titleId:importArchive.titleId,selection:importArchive,files:0,entries:[],directories:[]}));
+ const plan=await importFiles.stage({folder:f.folder,source});await importFiles.command(f.folder,'confirm',plan.digest);return plan;
+}
+test('Switch X requests a Mac import; no write runs until confirmation is consumed at a launcher boundary',async t=>{
+ let options;const f=await importFixture(t,{restore:async o=>{options=o;await o.onState({phase:'complete',verified:true});return {verified:true,backupPath:'/backup'};}});
+ assert.equal(f.restores,0);assert.equal(await f.instance.pending(),false);
+ await f.instance.afterBatch();assert.equal(f.restores,0);
+ await stageFixture(f);assert.equal(await f.instance.pending(),true);
+ await f.instance.afterBatch();await waitFor(()=>f.instance.report.status,'catalog');
+ assert.equal(f.restores,1);assert.equal(options.confirmed,true);assert.equal(options.archive.uid,importArchive.uid);
+ assert.equal(await f.instance.pending(),false);await f.instance.afterBatch();assert.equal(f.restores,1);
+ assert.equal((await importFiles.json(path.join(f.folder,'result.json'))).phase,'complete');await f.instance.close();
+});
+test('B cancels waiting imports and invalidates delayed Mac confirmations without writes',async t=>{
+ const f=await importFixture(t);await f.instance.back();assert.equal(f.instance.report.status,'catalog');assert.equal(f.restores,0);
+ assert.equal((await importFiles.json(path.join(f.folder,'result.json'))).phase,'cancelled');
+ assert.ok(f.events.order.includes('title-ftp-resumed'));
+ await assert.rejects(importFiles.command(f.folder,'confirm','f'.repeat(64)),{code:'ENOENT'});await f.instance.close();
+});
+test('a stale B request during writing is ignored, while close waits for the import to settle',async t=>{
+ let release,entered=false;const waiting=new Promise(r=>release=r);
+ const f=await importFixture(t,{restore:async o=>{entered=true;await waiting;await o.onState({phase:'complete',verified:true});return {verified:true,backupPath:'/backup'};}});
+ await stageFixture(f);await f.instance.afterBatch();await waitFor(()=>entered,true);
+ await f.instance.back();assert.equal(f.restores,1);
+ let closed=false;const closing=f.instance.close().then(()=>closed=true);await new Promise(r=>setTimeout(r,10));assert.equal(closed,false);
+ release();await closing;assert.equal(f.instance.report.status,'stopped');assert.equal(f.events.fatal.length,0);
+});
+test('a wrong confirmation nonce is rejected and BCAT stays export-only',async t=>{
+ const f=await importFixture(t);await importFiles.atomic(path.join(f.folder,'command.json'),{action:'confirm',nonce:'f'.repeat(48),digest:'f'.repeat(64)});
+ await f.instance.afterBatch();assert.equal(f.restores,0);assert.equal(f.instance.report.status,'catalog');await f.instance.close();
+ const bcat=await importFixture(t,{archive:{...importArchive,type:2}});assert.equal(bcat.folder,undefined);assert.equal(bcat.restores,0);await bcat.instance.close();
+});
+test('uncertain import failure reaches the Mac result and blocks the native session',async t=>{
+ const f=await importFixture(t,{restore:async o=>{await o.onState({phase:'writing',backupPath:'/backup'});throw Object.assign(Error('commit uncertain'),{cleanupBlocked:true,backupPath:'/backup'});}});
+ await stageFixture(f);await f.instance.afterBatch();await waitFor(()=>f.events.fatal.length,1);
+ const result=await importFiles.json(path.join(f.folder,'result.json'));assert.equal(result.phase,'failed');assert.equal(result.cleanupBlocked,true);assert.equal(result.writeMayHaveOccurred,true);
+ await assert.rejects(f.instance.close(),/commit uncertain/);assert.equal(f.restores,1);
+});
+
+test('the next catalog selection waits for the previous close and handoff to settle',async t=>{
+ let release;const handoff=new Promise(r=>release=r);
+ const f=fixture(t,{onGameList:()=>handoff});await f.instance.start();await waitFor(()=>f.instance.report.status,'catalog');
+ await f.instance.select(0);await waitFor(()=>f.instance.report.status,'running');await f.instance.back();await waitFor(()=>f.instance.report.status,'catalog');
+ const next=f.instance.select(0);await new Promise(r=>setTimeout(r,10));assert.equal(f.events.mounted,1);
+ release();await next;await waitFor(()=>f.instance.report.status,'running');assert.equal(f.events.mounted,2);await f.instance.close();
+});
+
+async function webFixture(t,{archive=importArchive,beforeCommit}={}){
+ const real=require('../integrations/mintbrew-ouncecake/save-server.cjs'),http=require('node:http');
+ const {createHash}=require('node:crypto');let server,restores=0,pending,content='original';
+ async function snapshot({directory}){
+  fs.mkdirSync(directory,{recursive:true});const folder=fs.mkdtempSync(path.join(directory,'backup-'));
+  fs.mkdirSync(path.join(folder,'files'));fs.writeFileSync(path.join(folder,'files','slot'),content);
+  const bytes=Buffer.byteLength(content);
+  const manifest={format:'mac2jb.save-backup',version:1,titleId:archive.titleId,selection:archive,readOnly:true,partial:false,
+   files:1,bytes,directories:[],entries:[{path:'slot',size:bytes,sha256:createHash('sha256').update(content).digest('hex')}]};
+  fs.writeFileSync(path.join(folder,'manifest.json'),JSON.stringify(manifest));return {folder,manifest};
+ }
+ const f=fixture(t,{saveTools:{...importSaves,async inventory(){return [archive];},async withProfiles({archives}){return archives;},snapshot},
+  exportsEngine:{async discoverExports(){return [{title:archive.titleId,name:'Import game',storages:[4],kind:'game'}];}},
+  saveServer:{hostAddress:()=> '127.0.0.1',async start(opts){server=await real.start({...opts,port:0});return server;}},
+  saveImporter:{async restore(options){restores++;pending=options;
+   const plan=await importFiles.planAt(options.folder,options.digest);
+   await beforeCommit?.();
+   content=fs.readFileSync(path.join(plan.stageRoot,'slot'),'utf8');
+   const verified=await snapshot({directory:f.directory});
+   const result={phase:'complete',verified:true,backupPath:'/backup',verifiedPath:verified.folder};
+   await options.onState(result);return result;
+  }}});
+ const agent=new http.Agent({keepAlive:true,maxSockets:1});
+ t.after(()=>{agent.destroy();return server?.close();});
+ await f.instance.start();await waitFor(()=>f.instance.report.status,'catalog');
+ await f.instance.selectSaves(0);await waitFor(()=>f.instance.report.catalogView,'saves');await waitFor(()=>f.instance.report.status,'catalog');
+ await f.instance.select(1);await waitFor(()=>f.instance.report.status,archive.type===2?'running':'saveTransfer');
+ const header=()=>f.events.writes.filter(x=>x.bytes.length===protocol.HEADER_BYTES).at(-1).bytes;
+ const notice=()=>{const h=header();return h.subarray(256,256+h.readUInt32LE(36)).toString();};
+ const send=(method,remote,body)=>new Promise((resolve,reject)=>{
+  const req=http.request(new URL(remote,server.url),{method,agent},res=>{
+   const chunks=[],port=res.socket.localPort;
+   res.on('data',chunk=>chunks.push(chunk));
+   res.on('end',()=>resolve({status:res.statusCode,body:Buffer.concat(chunks).toString(),port}));
+  });
+  req.on('error',reject);req.end(body);
+ });
+ const title='Import game ['+archive.titleId+']',titlePath=encodeURIComponent(title)+'/';
+ const sendInTitle=(method,remote,body)=>send(method,titlePath+remote,body);
+ return {...f,notice,title,send,sendInTitle,get restores(){return restores;},get pending(){return pending;}};
+}
+test('combined save session keeps both folders and the same connection through multiple verified imports',async t=>{
+ let release;const waiting=new Promise(r=>release=r);
+ const f=await webFixture(t,{beforeCommit:()=>waiting}),url=f.instance.report.httpURL;
+ t.after(release);
+ const listing=await f.send('PROPFIND','');
+ assert.equal(new URL(url).pathname,'/');
+ assert.ok(listing.body.includes('<d:displayname>'+f.title+'</d:displayname>'));
+ assert.match(listing.body,/Export\//);assert.match(listing.body,/Import\//);
+ await f.instance.select(0);assert.equal(f.instance.report.status,'saveTransfer');assert.equal(f.restores,0);
+ for(const [previous,edited] of [['original','edited'],['edited','again']]){
+  const exportBackup=f.instance.report.saveBackup.folder;
+  assert.equal((await f.sendInTitle('PUT','Import/slot',edited)).status,201);
+  await f.instance.afterBatch();assert.equal((await f.sendInTitle('GET','Export/files/slot')).body,previous);
+  await f.instance.select(0);
+  if(previous==='original'){
+   await waitFor(()=>f.restores,1);
+   assert.equal((await f.sendInTitle('PUT','Import/slot','too late')).status,403);
+   assert.equal((await f.sendInTitle('GET','Export/files/slot')).body,previous);
+   release();
+  }
+  await waitFor(()=>f.instance.report.status,'saveTransfer');
+  assert.equal(f.instance.report.httpURL,url);
+  assert.equal(f.pending.exportBackup,exportBackup);
+  const download=await f.sendInTitle('GET','Export/files/slot');
+  assert.equal(download.body,edited);assert.equal(download.port,listing.port);
+  assert.equal((await f.sendInTitle('GET','Import/slot')).status,404);
+ }
+ assert.equal(f.restores,2);assert.equal(f.pending.archive.uid,importArchive.uid);assert.equal(f.pending.confirmed,true);
+ await f.instance.afterBatch();assert.equal(f.restores,2);
+ assert.equal(f.events.detach,0);await f.instance.back();await waitFor(()=>f.instance.report.status,'catalog');
+ await f.instance.close();assert.equal(f.events.detach,1);
+});
+test('WebDAV unwraps a dragged Export/files folder with one confirmation',async t=>{
+ const f=await webFixture(t),url=f.instance.report.httpURL;
+ assert.equal((await f.sendInTitle('MKCOL','Import/files')).status,201);
+ assert.equal((await f.sendInTitle('PUT','Import/files/slot','edited')).status,201);
+ assert.equal((await f.sendInTitle('GET','Export/files/slot')).body,'original');
+ assert.equal(f.restores,0);
+ await f.instance.select(0);
+ await waitFor(()=>f.instance.report.status,'saveTransfer');
+ assert.equal(f.instance.report.httpURL,url);
+ assert.equal((await f.sendInTitle('GET','Export/files/slot')).body,'edited');assert.equal(f.restores,1);
+ await f.instance.close();
+});
+test('WebDAV refuses mixing a dragged files folder and loose uploads',async t=>{
+ const f=await webFixture(t);
+ assert.equal((await f.sendInTitle('MKCOL','Import/files')).status,201);
+ assert.equal((await f.sendInTitle('PUT','Import/files/slot','edited')).status,201);
+ assert.equal((await f.sendInTitle('PUT','Import/slot','loose')).status,201);
+ await f.instance.select(0);
+ await waitFor(f.notice,'Upload the files folder by itself, or upload its contents directly.');
+ assert.equal((await f.sendInTitle('GET','Export/files/slot')).body,'original');assert.equal(f.restores,0);
+ await f.instance.close();
+});
+test('B closes a session with unconfirmed uploads; BCAT uses the read-only endpoint',async t=>{
+ const f=await webFixture(t);
+ assert.equal((await f.sendInTitle('PUT','Import/slot','edited')).status,201);
+ assert.equal((await f.sendInTitle('GET','Export/files/slot')).body,'original');assert.equal(f.restores,0);
+ await f.instance.back();await waitFor(()=>f.instance.report.status,'catalog');
+ assert.equal(f.restores,0);await f.instance.close();
+ const bcat=await webFixture(t,{archive:{...importArchive,type:2}});
+ assert.equal(new URL(bcat.instance.report.httpURL).pathname,'/');
+ assert.equal((await bcat.sendInTitle('PUT','Import/slot','edited')).status,404);
+ assert.equal((await bcat.sendInTitle('GET','files/slot')).body,'original');
+ await bcat.instance.close();
 });
