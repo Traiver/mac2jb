@@ -125,6 +125,11 @@
       "date": "2026-11-10",
       "file": "engine/native-license.cjs, engine/mounts.cjs",
       "description": "Port physical GameCard and optional legacy license handling from cpypwn 5ce51c2 while retaining cooperative cancellation, typed errors and the current HTTP runtime."
+    },
+    {
+      "date": "2026-11-12",
+      "file": "engine/content.cjs",
+      "description": "Expose discoverApplications for the new upstream filesystem integrations while retaining the fork catalog, scoped exports, save tools and native HTTP ABI."
     }
   ],
   "httpBase": {

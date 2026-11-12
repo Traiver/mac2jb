@@ -550,7 +550,7 @@ async function discoverGames({ s, root, domain, service, filesystem, shouldStop 
 }
 
 module.exports = {
-  discoverGames, discoverBase, discoverUpdates, discoverDlc, discoverDataPatches,
+  discoverGames, discoverApplications, discoverBase, discoverUpdates, discoverDlc, discoverDataPatches,
   discoverSystemPrograms, discoverSystemData,
   resolveContent, resolveProgramContent, resolveControlContent, resolveDlcContent, resolveDataPatchContent, resolveSystemDataContent, findOriginalContent,
   isInstalledUpdate, programMatchesApplication,

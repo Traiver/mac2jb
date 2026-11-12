@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Add upstream CivSwitch FS, CivHomebrew app installation and catalogs, Artemis FS, NXFormat and SD-first Modloader support.
+- Remove IZlauncher, DOOM, File Exchange and their dependent components.
+- Omit the disabled CivSwitch Stremio prototype from the fork.
+
 - Merge Astral host support, Modloader, new save installers, and persistent USB and network preferences from upstream.
 - Add optional Mac-local FTP for direct OunceCake exports and improve physical GameCard handling.
 
