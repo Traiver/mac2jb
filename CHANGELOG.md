@@ -1,18 +1,22 @@
 # Changelog
 
-## Unreleased
+## mac2jb v0.8.2 — Build 550 (unreleased)
 
-- Add upstream CivSwitch FS, CivHomebrew app installation and catalogs, Artemis FS, NXFormat and SD-first Modloader support.
-- Remove IZlauncher, DOOM, File Exchange and their dependent components.
-- Omit the disabled CivSwitch Stremio prototype from the fork.
+### Upstream 0.8.0–0.8.2
 
-- Merge Astral host support, Modloader, new save installers, and persistent USB and network preferences from upstream.
-- Add optional Mac-local FTP for direct OunceCake exports and improve physical GameCard handling.
+- Add verified CivSwitch FS sessions for SaveKit, OunceCake and the experimental Modloader, plus an experimental Seedsow Lullaby FS bridge.
+- Add CivHomebrew and Moonlight setup, saved boot triggers, public/custom app catalogs, verified installs and updates, and SW2NES/Jellyfin/Moonlight installation.
+- Update Artemis launcher saves to v2; add Nora HD demo, Seedsow full-game and Lua Editor Pro v0.4.0 installers, plus Balatro RCE v1.1.0 and Gravity Circuit save installers.
+- Improve SaveKit large writes and readback verification; make Modloader installation use compatible SD-card mods, with optional Mac uploads; bundle NXFormat 1.0.3.
 
-- Support SmileBASIC Demo 4.4.6 display and controller imports when launching MistBrew.
-- Fix OunceCake update exports for games with additional program indices.
-- Offer an optional resumable TAR download alongside OunceCake's game folders.
-- Make OunceCake respond faster when confirming selections or holding Up/Down.
+### Additional fork changes
+
+- Preserve the MistBrew design and extended OunceCake game, firmware, system and save export/import features.
+- Add Astral host support, SmileBASIC Demo imports and saved USB/network preferences.
+- Improve OunceCake physical GameCard and indexed Update exports; add optional Mac-local FTP, resumable TAR downloads and faster controller navigation.
+- Remove DOOM, File Exchange, IZlauncher and their dependent components; omit the disabled CivSwitch Stremio prototype.
+
+Upstream release notes: [0.8.0](https://github.com/cpypwn/mac2jb/releases/tag/v0.8.0), [0.8.1](https://github.com/cpypwn/mac2jb/releases/tag/v0.8.1), [0.8.2](https://github.com/cpypwn/mac2jb/releases/tag/v0.8.2).
 
 ## mac2jb v0.7.6 — Build 544
 
